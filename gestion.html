@@ -1,0 +1,294 @@
+﻿<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gesti&oacute;n | Paradiso Nails Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="admin">
+    <section class="login-screen" id="loginScreen" aria-labelledby="login-title">
+      <form class="login-card" id="loginForm">
+        <span class="brand-mark">P</span>
+        <p class="eyebrow">Acceso privado</p>
+        <h1 id="login-title">Gesti&oacute;n Paradiso</h1>
+        <label>
+          Usuario
+          <input type="text" id="adminUser" autocomplete="username" required />
+        </label>
+        <label>
+          Contrase&ntilde;a
+          <input type="password" id="adminPassword" autocomplete="current-password" required />
+        </label>
+        <button class="pay-button" type="submit">Ingresar</button>
+        <p class="admin-status" id="loginStatus" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <div class="admin-app" id="adminApp" hidden>
+      <header class="site-header management-header">
+        <a class="brand" href="gestion.html" aria-label="Paradiso Nails Studio gesti&oacute;n">
+          <span class="brand-mark">P</span>
+          <span>
+            <strong>Paradiso</strong>
+            <small>Panel privado</small>
+          </span>
+        </a>
+        <div class="admin-menu-wrapper">
+          <button class="nav-button menu-toggle" id="adminMenuButton" type="button" aria-expanded="false" aria-controls="adminMenuDropdown">Men&uacute;</button>
+          <div class="admin-menu-dropdown" id="adminMenuDropdown" hidden>
+            <button type="button" data-admin-view="notificaciones">Notificaciones</button>
+            <button type="button" data-admin-view="servicios">Servicios</button>
+            <button type="button" data-admin-view="reservas">Reservas</button>
+            <button type="button" data-admin-view="fin-trabajo">Fin de trabajo</button>
+            <button type="button" data-admin-view="cobro">Cobro</button>
+            <button type="button" data-admin-view="smtp">SMTP</button>
+            <button type="button" id="logoutButton">Salir</button>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="admin-hero" aria-labelledby="admin-title" data-admin-view-panel="menu">
+          <p class="eyebrow">Panel administrador</p>
+          <h1 id="admin-title">Precios, reservas, pagos y correos</h1>
+          <p>Los cambios de servicios se comparten con la p&aacute;gina p&uacute;blica de clientas.</p>
+          <div class="notification-banner" id="newReservationNotice" hidden>
+            <strong id="newReservationText">0 reservas nuevas</strong>
+            <button class="button secondary light" id="markReservationsSeen" type="button">Marcar como vistas</button>
+          </div>
+        </section>
+
+        <section class="admin-section admin-menu-screen" id="menu-admin" aria-labelledby="main-menu-title" data-admin-view-panel="menu">
+          <div class="section-heading">
+            <p class="eyebrow">Men&uacute; principal</p>
+            <h2 id="main-menu-title">Eleg&iacute; qu&eacute; quer&eacute;s gestionar</h2>
+          </div>
+          <div class="admin-menu-grid">
+            <button class="admin-menu-card" type="button" data-admin-view="notificaciones">
+              <strong>Notificaciones</strong>
+              <span>Edit&aacute; los mensajes que reciben las clientas.</span>
+            </button>
+            <button class="admin-menu-card" type="button" data-admin-view="servicios">
+              <strong>Servicios</strong>
+              <span>Cre&aacute;, edit&aacute; o paus&aacute; servicios.</span>
+            </button>
+            <button class="admin-menu-card" type="button" data-admin-view="reservas">
+              <strong>Reservas</strong>
+              <span>Revis&aacute; turnos, pagos y estados.</span>
+            </button>
+            <button class="admin-menu-card" type="button" data-admin-view="fin-trabajo">
+              <strong>Fin de trabajo</strong>
+              <span>Envi&aacute; consejos de cuidado cuando termina el turno.</span>
+            </button>
+            <button class="admin-menu-card" type="button" data-admin-view="cobro">
+              <strong>Cobro</strong>
+              <span>Configur&aacute; se&ntilde;as, alias y pagos.</span>
+            </button>
+            <button class="admin-menu-card" type="button" data-admin-view="smtp">
+              <strong>SMTP</strong>
+              <span>Configur&aacute; el env&iacute;o de correos.</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="admin-section" id="notificaciones-admin" aria-labelledby="notifications-title" data-admin-view-panel="notificaciones" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Notificaciones</p>
+              <h2 id="notifications-title">Mensajes autom&aacute;ticos</h2>
+            </div>
+            <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
+          </div>
+          <section class="admin-panel">
+            <p class="slot-empty">Variables disponibles: {nombre_cliente}, {apellido_cliente}, {fecha}, {hora}, {servicios}, {total}, {estado_reserva}, {dias_garantia}, {nombre_salon}.</p>
+            <form class="admin-form notification-template-form" id="notificationTemplateForm">
+              <div id="notificationTemplateFields"></div>
+              <div class="form-row compact-actions">
+                <button class="button primary admin-action" type="submit">Guardar mensajes</button>
+                <button class="button secondary light" id="resetNotificationTemplates" type="button">Restaurar textos</button>
+              </div>
+              <p class="admin-status" id="notificationTemplateStatus" aria-live="polite"></p>
+            </form>
+          </section>
+        </section>
+
+        <section class="admin-section" id="servicios-admin" aria-labelledby="admin-services-title" data-admin-view-panel="servicios" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Servicios</p>
+              <h2 id="admin-services-title">Administrar servicios</h2>
+            </div>
+            <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
+          </div>
+          <section class="admin-panel">
+            <form class="admin-form" id="adminServiceForm">
+              <div class="form-row">
+                <label>Nombre<input type="text" id="newServiceName" required /></label>
+                <label>Precio<input type="number" id="newServicePrice" min="0" step="500" required /></label>
+                <label>Duraci&oacute;n en minutos<input type="number" id="newServiceMinutes" min="5" step="5" required /></label>
+              </div>
+              <label>Descripci&oacute;n<textarea id="newServiceDescription" rows="2" required></textarea></label>
+              <button class="button primary admin-action" type="submit">Crear servicio</button>
+            </form>
+            <div class="admin-list" id="adminServiceRows"></div>
+          </section>
+        </section>
+
+        <section class="admin-section" id="reservas-admin" aria-labelledby="reservations-title" data-admin-view-panel="reservas" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Reservas</p>
+              <h2 id="reservations-title">Reservas recibidas</h2>
+            </div>
+            <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
+          </div>
+
+          <section class="admin-panel calendar-admin-panel" aria-labelledby="calendar-admin-title">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Almanaque</p>
+                <h3 id="calendar-admin-title">Disponibilidad por fecha</h3>
+              </div>
+              <div class="calendar-header compact-calendar-header">
+                <button class="icon-button" id="adminPrevMonth" type="button" aria-label="Mes anterior">&lt;</button>
+                <strong id="adminCalendarTitle"></strong>
+                <button class="icon-button" id="adminNextMonth" type="button" aria-label="Mes siguiente">&gt;</button>
+              </div>
+            </div>
+            <div class="weekday-row" aria-hidden="true">
+              <span>Lun</span><span>Mar</span><span>Mie</span><span>Jue</span><span>Vie</span><span>Sab</span><span>Dom</span>
+            </div>
+            <div class="calendar-grid admin-calendar-grid" id="adminCalendarGrid" aria-label="Calendario de reservas"></div>
+            <div class="availability-board">
+              <div>
+                <p class="eyebrow">Fecha seleccionada</p>
+                <h3 id="adminSelectedDateLabel">Hoy</h3>
+                <div class="reservation-list compact-list" id="adminDayReservations"></div>
+              </div>
+              <div>
+                <p class="eyebrow">Horarios ocupados</p>
+                <div class="reservation-services" id="adminBusySlots"></div>
+                <p class="eyebrow free-heading">Horarios disponibles</p>
+                <div class="reservation-services" id="adminFreeSlots"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="admin-panel reservations-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Estados</p>
+                <h3>Seguimiento manual</h3>
+              </div>
+              <div class="filter-tabs" aria-label="Filtrar reservas">
+                <button class="filter-tab active" type="button" data-reservation-filter="all">Todas</button>
+                <button class="filter-tab" type="button" data-reservation-filter="pending">Pendiente</button>
+                <button class="filter-tab" type="button" data-reservation-filter="paid">Pago recibido</button>
+                <button class="filter-tab" type="button" data-reservation-filter="confirmed">Confirmadas</button>
+                <button class="filter-tab" type="button" data-reservation-filter="cancelled">Canceladas</button>
+              </div>
+            </div>
+            <p class="admin-status" id="adminNotificationStatus" hidden></p>
+            <div class="reservation-list" id="reservationRows"></div>
+          </section>
+        </section>
+
+        <section class="admin-section" id="fin-trabajo-admin" aria-labelledby="finished-work-title" data-admin-view-panel="fin-trabajo" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Fin de trabajo</p>
+              <h2 id="finished-work-title">Consejos posteriores al servicio</h2>
+            </div>
+            <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
+          </div>
+          <section class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Turnos finalizados</p>
+                <h3>Reservas listas para seguimiento</h3>
+              </div>
+            </div>
+            <p class="admin-status" id="aftercareStatus" hidden aria-live="polite"></p>
+            <div class="reservation-list" id="finishedWorkRows"></div>
+          </section>
+        </section>
+
+        <section class="admin-section" id="cobro-admin" aria-labelledby="payment-config-title" data-admin-view-panel="cobro" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Cobro</p>
+              <h2 id="payment-config-title">Configuraci&oacute;n de Cobro</h2>
+            </div>
+            <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
+          </div>
+          <section class="admin-panel">
+            <form class="admin-form" id="paymentConfigForm">
+              <div class="form-row">
+                <label>Tipo de se&ntilde;a
+                  <select id="paymentDepositMode">
+                    <option value="amount">Monto fijo</option>
+                    <option value="percent">Porcentaje</option>
+                  </select>
+                </label>
+                <label>Monto o porcentaje de se&ntilde;a<input type="number" id="paymentDepositValue" min="0" step="1" placeholder="0" /></label>
+              </div>
+              <div class="form-row">
+                <label>Alias de Mercado Pago<input type="text" id="paymentAlias" placeholder="laura.dba" required /></label>
+                <label>Nombre del titular<input type="text" id="paymentHolder" placeholder="Laura Paradiso" required /></label>
+              </div>
+              <label>CBU opcional<input type="text" id="paymentCbu" placeholder="Opcional" /></label>
+              <label>Mensaje personalizado de pago<textarea id="paymentMessage" rows="3" placeholder="Transfer&iacute; el importe exacto y adjunt&aacute; el comprobante."></textarea></label>
+              <button class="button primary admin-action" type="submit">Guardar cobro</button>
+              <p class="admin-status" id="paymentConfigStatus" aria-live="polite"></p>
+            </form>
+            <div class="payment-summary-grid" id="paymentSummary"></div>
+          </section>
+        </section>
+        <section class="admin-section" id="smtp-admin" aria-labelledby="smtp-title" data-admin-view-panel="smtp" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Correo</p>
+              <h2 id="smtp-title">Configuraci&oacute;n SMTP</h2>
+            </div>
+            <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
+          </div>
+          <section class="admin-panel">
+            <form class="admin-form" id="smtpForm">
+              <div class="form-row">
+                <label>Servidor SMTP<input type="text" id="smtpHost" placeholder="smtp.gmail.com" /></label>
+                <label>Puerto<input type="number" id="smtpPort" placeholder="587" /></label>
+              </div>
+              <div class="form-row">
+                <label>Usuario SMTP<input type="text" id="smtpUser" /></label>
+                <label>Contrase&ntilde;a<input type="password" id="smtpPassword" /></label>
+              </div>
+              <div class="form-row">
+                <label>Correo remitente<input type="email" id="smtpFrom" /></label>
+                <label>Nombre del remitente<input type="text" id="smtpFromName" placeholder="Paradiso Nails" /></label>
+              </div>
+              <div class="form-row">
+                <label>Correo administrador<input type="email" id="smtpAdminEmail" /></label>
+              </div>
+              <label class="checkbox-label"><input type="checkbox" id="smtpSecure" /> Seguridad STARTTLS / SSL-TLS</label>
+              <div class="form-row compact-actions">
+                <button class="button primary admin-action" type="submit">Guardar SMTP</button>
+                <button class="button secondary light" id="smtpTestButton" type="button">Probar env&iacute;o de correo</button>
+              </div>
+              <p class="admin-status" id="smtpStatus" aria-live="polite"></p>
+            </form>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="gestion.js"></script>
+  </body>
+</html>
+

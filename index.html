@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Paradiso Nails Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="public">
+    <header class="site-header public-header">
+      <a class="brand" href="#home" aria-label="Paradiso Nails Studio" data-step-target="home">
+        <span class="brand-mark">P</span>
+        <span>
+          <strong>Paradiso</strong>
+          <small>Nails Studio</small>
+        </span>
+      </a>
+      <nav aria-label="Principal">
+        <a href="#home" data-step-target="home">Home</a>
+        <a href="#servicios-disponibles" data-step-target="servicios-disponibles">Servicios</a>
+        <a id="headerWhatsappLink" href="https://wa.me/5490000000000" target="_blank" rel="noreferrer">WhatsApp</a>
+      </nav>
+    </header>
+
+    <main class="booking-flow">
+      <section class="hero flow-step" id="home" aria-labelledby="hero-title">
+        <div class="hero-media" role="img" aria-label="Manos con unas pintadas">
+          <span class="hero-slide hero-slide-1"></span>
+          <span class="hero-slide hero-slide-2"></span>
+          <span class="hero-slide hero-slide-3"></span>
+        </div>
+        <div class="hero-content paradiso-cover">
+          <p class="eyebrow">Turnos online con se&ntilde;a</p>
+          <h1 id="hero-title">
+            <span class="hero-brand-name">PARADISO</span>
+            <span class="hero-brand-subtitle">NAILS STUDIO</span>
+          </h1>
+          <p>
+            Eleg&iacute; tus servicios, reserv&aacute; un horario disponible y dej&aacute; tu se&ntilde;a abonada para confirmar el turno.
+          </p>
+          <div class="hero-actions">
+            <button class="button primary" type="button" data-step-target="servicios-disponibles">Reservar turno</button>
+            <a
+              class="button secondary"
+              id="whatsappLink"
+              href="https://wa.me/5490000000000"
+              target="_blank"
+              rel="noreferrer"
+              data-whatsapp-number="5490000000000"
+            >
+              Consultar por WhatsApp
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="service-band flow-step" id="servicios-disponibles" aria-labelledby="services-title" hidden>
+        <div class="step-shell">
+          <div class="section-heading">
+            <p class="eyebrow">Servicios disponibles</p>
+            <h2 id="services-title">Seleccion&aacute; uno o varios servicios</h2>
+          </div>
+          <div class="services-grid catalog-grid selectable-grid" id="serviceCards"></div>
+          <div class="step-actions-bar">
+            <p class="slot-empty" id="servicesError" aria-live="polite"></p>
+            <button class="pay-button step-continue" id="continueToGuide" type="button">Continuar</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="booking-section selection-section flow-step" id="reserva-guiada" aria-labelledby="booking-title" hidden>
+        <div class="booking-intro">
+          <p class="eyebrow">Reserva guiada</p>
+          <h2 id="booking-title">Revis&aacute; tu selecci&oacute;n</h2>
+          <p>
+            Calculamos el total y el tiempo necesario para mostrar horarios que respeten la duraci&oacute;n completa del turno.
+          </p>
+        </div>
+
+        <section class="selection-card-panel selection-panel" aria-labelledby="selection-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Resumen</p>
+              <h3 id="selection-title">Servicios seleccionados</h3>
+            </div>
+            <strong id="selectedCount">0 servicios</strong>
+          </div>
+          <div class="selected-items" id="selectedItems"></div>
+          <p class="slot-empty" id="selectionEmpty">Todav&iacute;a no seleccionaste servicios.</p>
+          <aside class="summary selection-summary" aria-live="polite">
+            <div>
+              <span>Total a pagar</span>
+              <strong id="selectionTotal">$0</strong>
+            </div>
+            <div>
+              <span>Tiempo total</span>
+              <strong id="selectionDuration">0 min</strong>
+            </div>
+            <div>
+              <span>Atenci&oacute;n</span>
+              <strong>08:00 a 19:00</strong>
+            </div>
+            <div>
+              <span>Reserva</span>
+              <strong>Pendiente</strong>
+            </div>
+          </aside>
+          <div class="form-row flow-actions">
+            <button class="button secondary light" type="button" data-step-target="servicios-disponibles">Modificar servicios</button>
+            <button class="pay-button" id="continueToSchedule" type="button">Continuar</button>
+          </div>
+          <p class="slot-empty" id="selectionError" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <section class="booking-section schedule-section flow-step" id="fecha-horario" aria-labelledby="schedule-title" hidden>
+        <div class="booking-intro">
+          <p class="eyebrow">Selecci&oacute;n de fecha y horario</p>
+          <h2 id="schedule-title">Eleg&iacute; un turno disponible</h2>
+          <p>
+            Los horarios se calculan entre 08:00 y 19:00 y se ajustan al tiempo total de los servicios elegidos.
+          </p>
+        </div>
+
+        <section class="selection-card-panel selection-panel">
+          <div class="form-row">
+            <label>
+              Fecha del turno
+              <input type="date" id="appointmentDate" required />
+            </label>
+          </div>
+          <div class="slot-panel modal-slot-panel">
+            <div>
+              <span>Horarios disponibles</span>
+              <strong id="slotDateLabel">Seleccion&aacute; una fecha</strong>
+            </div>
+            <div class="time-slots available-slots" id="availableSlots"></div>
+            <p class="slot-empty" id="slotHelp"></p>
+          </div>
+          <aside class="summary selection-summary" aria-live="polite">
+            <div>
+              <span>Inicio</span>
+              <strong id="selectedStart">Sin elegir</strong>
+            </div>
+            <div>
+              <span>Fin estimado</span>
+              <strong id="selectedEnd">Sin elegir</strong>
+            </div>
+            <div>
+              <span>Tiempo total</span>
+              <strong id="modalDuration">0 min</strong>
+            </div>
+            <div>
+              <span>Total</span>
+              <strong id="modalTotal">$0</strong>
+            </div>
+          </aside>
+          <div class="form-row flow-actions">
+            <button class="button secondary light" type="button" data-step-target="reserva-guiada">Volver al resumen</button>
+            <button class="pay-button" id="continueToCheckout" type="button">Continuar</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="checkout-section flow-step" id="confirmacion-pago" aria-labelledby="checkout-title" hidden>
+        <div class="checkout-layout">
+          <div class="checkout-heading">
+            <p class="eyebrow">Confirmaci&oacute;n y pago</p>
+            <h2 id="checkout-title">Revis&aacute; el turno y carg&aacute; tus datos</h2>
+            <p>
+              La reserva queda pendiente hasta que revisemos el comprobante. Al generar la solicitud, el horario queda bloqueado.
+            </p>
+          </div>
+          <div class="checkout-panel">
+            <div class="checkout-review" id="checkoutReview"></div>
+            <form class="booking-form client-form modal-form" id="reservationForm">
+              <fieldset>
+                <legend>Datos del cliente</legend>
+                <div class="form-row">
+                  <label>
+                    Nombre y apellido
+                    <input type="text" name="clientName" id="clientName" placeholder="Nombre completo" required />
+                  </label>
+                  <label>
+                    Tel&eacute;fono
+                    <input type="tel" name="clientPhone" id="clientPhone" placeholder="11 5555 5555" required />
+                  </label>
+                </div>
+                <label>
+                  Correo electr&oacute;nico
+                  <input type="email" name="clientEmail" id="clientEmail" placeholder="nombre@email.com" required />
+                </label>
+                <label>
+                  Comentario opcional
+                  <textarea name="clientComment" id="clientComment" rows="3" placeholder="Dise&ntilde;o, color o detalle importante"></textarea>
+                </label>
+              </fieldset>
+              <fieldset>
+                <legend>Comprobante de transferencia</legend>
+                <label>
+                  Adjuntar comprobante
+                  <input type="file" name="paymentProof" id="paymentProof" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required />
+                </label>
+                <label>
+                  Observaciones de pago
+                  <textarea name="paymentNotes" id="paymentNotes" rows="3" placeholder="Opcional: detalle de la transferencia"></textarea>
+                </label>
+              </fieldset>
+              <div class="form-row flow-actions">
+                <button class="button secondary light" type="button" data-step-target="fecha-horario">Cambiar horario</button>
+                <button class="pay-button" type="submit">Generar reserva y enviar comprobante</button>
+              </div>
+              <div class="policy-box">
+                <p>La reserva queda pendiente de validaci&oacute;n de pago hasta que revisemos el comprobante.</p>
+                <p>Cuando se genere la reserva, el horario quedar&aacute; bloqueado.</p>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="confirmationDialog">
+      <div class="dialog-content">
+        <button class="close-button" data-close-dialog="confirmationDialog" type="button" aria-label="Cerrar">x</button>
+        <p class="eyebrow">Solicitud registrada</p>
+        <h2>Reserva pendiente</h2>
+        <p id="confirmationText"></p>
+        <button class="button primary full" data-close-dialog="confirmationDialog" type="button">Entendido</button>
+      </div>
+    </dialog>
+
+    <script src="script.js"></script>
+  </body>
+</html>
