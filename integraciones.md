@@ -86,7 +86,7 @@ Importante: al ser una web estatica, esta proteccion es solo una barrera visual 
 
 ## SMTP
 
-El navegador usa el backend Node.js incluido en `server.js` para enviar correos reales con Nodemailer.
+El navegador usa el backend Node.js local incluido en `server-local.js` para enviar correos reales con Nodemailer cuando se prueba en la computadora.
 
 La configuracion SMTP permite probar el envio al correo administrador y enviar consejos de cuidado a la clienta desde el panel, sin abrir clientes externos de correo. Para Gmail usar `smtp.gmail.com`, puerto `587`, seguridad STARTTLS / SSL-TLS activada y una contrasena de aplicacion de Google.
 

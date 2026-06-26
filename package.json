@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "start": "node server.js"
+    "start": "echo static site",
+    "start:local": "node server-local.js"
   },
   "dependencies": {
     "nodemailer": "^6.9.16"
