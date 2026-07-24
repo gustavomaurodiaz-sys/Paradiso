@@ -30,6 +30,14 @@
 
     <main class="booking-flow">
       <section class="hero flow-step" id="home" aria-labelledby="hero-title">
+        <div class="hero-atmosphere" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
         <div class="hero-media" role="img" aria-label="Manos con unas pintadas">
           <span class="hero-slide hero-slide-1"></span>
           <span class="hero-slide hero-slide-2"></span>
@@ -38,14 +46,26 @@
         <div class="hero-content paradiso-cover">
           <p class="eyebrow">Turnos online con se&ntilde;a</p>
           <h1 id="hero-title">
-            <span class="hero-brand-name">PARADISO</span>
+            <span class="hero-brand-name" aria-label="PARADISO">
+              <span class="hero-letter" aria-hidden="true" style="--i: 0">P</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 1">A</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 2">R</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 3">A</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 4">D</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 5">I</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 6">S</span>
+              <span class="hero-letter" aria-hidden="true" style="--i: 7">O</span>
+            </span>
             <span class="hero-brand-subtitle">NAILS STUDIO</span>
           </h1>
           <p>
             Eleg&iacute; tus servicios, reserv&aacute; un horario disponible y dej&aacute; tu se&ntilde;a abonada para confirmar el turno.
           </p>
           <div class="hero-actions">
-            <button class="button primary" type="button" data-step-target="servicios-disponibles">Reservar turno</button>
+            <button class="button primary hero-reserve-button" type="button" data-step-target="servicios-disponibles">
+              <span class="button-main">Reservar turno</span>
+              <span class="button-sub">Online con se&ntilde;a</span>
+            </button>
             <a
               class="button secondary"
               id="whatsappLink"
@@ -67,9 +87,23 @@
             <h2 id="services-title">Seleccion&aacute; uno o varios servicios</h2>
           </div>
           <div class="services-grid catalog-grid selectable-grid" id="serviceCards"></div>
-          <div class="step-actions-bar">
+          <div class="service-floating-summary" id="serviceFloatingSummary" hidden>
+            <div>
+              <p class="eyebrow">Servicios seleccionados</p>
+              <div class="floating-service-list" id="floatingServiceList"></div>
+            </div>
+            <div class="floating-summary-totals">
+              <div>
+                <span>Total estimado</span>
+                <strong id="floatingSelectionTotal">$0</strong>
+              </div>
+              <div>
+                <span>Duraci&oacute;n total</span>
+                <strong id="floatingSelectionDuration">0 min</strong>
+              </div>
+            </div>
             <p class="slot-empty" id="servicesError" aria-live="polite"></p>
-            <button class="pay-button step-continue" id="continueToGuide" type="button">Continuar</button>
+            <button class="pay-button step-continue" id="continueToGuide" type="button">Continuar con la reserva</button>
           </div>
         </div>
       </section>

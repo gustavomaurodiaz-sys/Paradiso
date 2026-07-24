@@ -39,6 +39,21 @@ const statusLabels = {
   cancelled: "Cancelada",
 };
 
+const serviceVisuals = [
+  { image: "assets/hero-1.jpg", layout: "tall", position: "center" },
+  { image: "assets/hero-2.jpg", layout: "square", position: "center" },
+  { image: "assets/hero-3.jpg", layout: "wide", position: "center" },
+  { image: "assets/hero-2.jpg", layout: "tall", position: "62% center" },
+  { image: "assets/hero-3.jpg", layout: "square", position: "35% center" },
+  { image: "assets/hero-1.jpg", layout: "wide", position: "58% center" },
+  { image: "assets/hero-3.jpg", layout: "tall", position: "42% center" },
+  { image: "assets/hero-1.jpg", layout: "square", position: "68% center" },
+  { image: "assets/hero-2.jpg", layout: "wide", position: "45% center" },
+  { image: "assets/hero-2.jpg", layout: "square", position: "center" },
+  { image: "assets/hero-1.jpg", layout: "tall", position: "62% center" },
+  { image: "assets/hero-3.jpg", layout: "wide", position: "center" },
+];
+
 const allowedProofTypes = ["image/jpeg", "image/png", "application/pdf"];
 const allowedProofExtensions = ["jpg", "jpeg", "png", "pdf"];
 const openMinutes = 8 * 60;
@@ -199,21 +214,42 @@ function availableSlots(dateValue, totalMinutes) {
   return slots;
 }
 
+function serviceVisual(service, index) {
+  const fallback = serviceVisuals[index % serviceVisuals.length];
+  return {
+    ...fallback,
+    image: service.image || fallback.image,
+    position: service.image ? "center" : fallback.position,
+  };
+}
+
 function renderServices() {
   const activeServices = services.filter((service) => service.active);
   $("#serviceCards").innerHTML = activeServices.length
-    ? activeServices.map((service) => {
+    ? activeServices.map((service, index) => {
       const checked = selectedServiceIds.includes(service.id);
+      const visual = serviceVisual(service, index);
       return `
-        <label class="service-card catalog-card selectable-card ${checked ? "selected" : ""}">
+        <label class="service-card catalog-card selectable-card editorial-service-card card-${visual.layout} ${checked ? "selected" : ""}" style="--reveal-index: ${index}">
           <input class="service-check" type="checkbox" value="${service.id}" ${checked ? "checked" : ""} />
-          <span class="icon">${service.icon}</span>
-          <h3>${service.name}</h3>
-          <p>${service.description}</p>
-          <div class="service-meta catalog-meta">
-            <span>${money(service.price)}</span>
-            <span>${durationLabel(service.minutes)}</span>
-          </div>
+          <span class="service-select-indicator" aria-hidden="true"></span>
+          <span class="service-image-wrap">
+            <img src="${visual.image}" alt="${service.name}" style="object-position: ${visual.position}" loading="lazy" />
+            <span class="service-rating" aria-label="Calificacion 4.9 de 5">&#9733;&#9733;&#9733;&#9733;&#9733; 4.9</span>
+          </span>
+          <span class="service-card-body">
+            <span class="service-kicker">Paradiso Selection</span>
+            <span class="service-title-row">
+              <span class="icon" aria-hidden="true">${service.icon}</span>
+              <h3>${service.name}</h3>
+            </span>
+            <span class="service-facts">
+              <span>${durationLabel(service.minutes)}</span>
+              <span>Desde ${money(service.price)}</span>
+            </span>
+            <span class="service-description">${service.description}</span>
+            <span class="select-service-button">${checked ? "Seleccionado" : "Seleccionar"}</span>
+          </span>
         </label>
       `;
     }).join("")
@@ -237,6 +273,14 @@ function renderSelection() {
       </div>
     </article>
   `).join("");
+
+  const floatingSummary = $("#serviceFloatingSummary");
+  if (floatingSummary) {
+    floatingSummary.hidden = servicesSelected.length === 0;
+    $("#floatingServiceList").innerHTML = servicesSelected.map((service) => `<span>${service.name}</span>`).join("");
+    $("#floatingSelectionTotal").textContent = money(totals.price);
+    $("#floatingSelectionDuration").textContent = durationLabel(totals.minutes);
+  }
 }
 
 function selectService(serviceId, checked) {
@@ -490,6 +534,30 @@ function bindEvents() {
   });
 }
 
+function bindHeroParallax() {
+  const hero = document.querySelector(".hero");
+  if (!hero || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  let frame = 0;
+  const setShift = (x = 0, y = 0) => {
+    hero.style.setProperty("--hero-shift-x", `${x}px`);
+    hero.style.setProperty("--hero-shift-y", `${y}px`);
+  };
+
+  hero.addEventListener("mousemove", (event) => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      const bounds = hero.getBoundingClientRect();
+      const x = ((event.clientX - bounds.left) / bounds.width - 0.5) * 18;
+      const y = ((event.clientY - bounds.top) / bounds.height - 0.5) * 12;
+      setShift(x, y);
+      frame = 0;
+    });
+  });
+
+  hero.addEventListener("mouseleave", () => setShift());
+}
+
 window.addEventListener("storage", (event) => {
   if (![storageKeys.services, storageKeys.reservations, storageKeys.paymentConfig].includes(event.key)) return;
   services = loadList(storageKeys.services, defaultServices);
@@ -508,6 +576,7 @@ renderServices();
 renderSelection();
 renderSlots();
 bindEvents();
+bindHeroParallax();
 showStep(window.location.hash.replace("#", "") || "home", false);
 
 window.addEventListener("popstate", () => {

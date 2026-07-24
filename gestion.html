@@ -135,6 +135,16 @@
                 <label>Duraci&oacute;n en minutos<input type="number" id="newServiceMinutes" min="5" step="5" required /></label>
               </div>
               <label>Descripci&oacute;n<textarea id="newServiceDescription" rows="2" required></textarea></label>
+              <div class="service-image-editor new-service-image-editor">
+                <div class="admin-image-preview" id="newServiceImagePreview">
+                  <span>Sin foto personalizada</span>
+                </div>
+                <div class="service-image-controls">
+                  <label>URL de imagen<input type="url" id="newServiceImageUrl" placeholder="https://..." /></label>
+                  <label>Subir foto<input type="file" id="newServiceImageFile" accept="image/*" /></label>
+                  <p class="slot-empty">La foto se ver&aacute; en el cat&aacute;logo p&uacute;blico del servicio.</p>
+                </div>
+              </div>
               <button class="button primary admin-action" type="submit">Crear servicio</button>
             </form>
             <div class="admin-list" id="adminServiceRows"></div>

@@ -169,6 +169,8 @@ const openMinutes = 8 * 60;
 const closeMinutes = 19 * 60;
 const slotStepMinutes = 30;
 const provisionalLimitMs = 24 * 60 * 60 * 1000;
+const serviceImageMaxSize = 1100;
+const serviceImageQuality = 0.78;
 const formatter = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -337,6 +339,54 @@ function slug(value) {
 
 function makeIcon(name) {
   return name.split(" ").filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+function previewImageMarkup(image, label = "Sin foto personalizada") {
+  return image
+    ? `<img src="${escapeHtml(image)}" alt="Vista previa del servicio" />`
+    : `<span>${label}</span>`;
+}
+
+function imageFileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      resolve("");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("El archivo seleccionado no es una imagen."));
+      return;
+    }
+
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      const scale = Math.min(1, serviceImageMaxSize / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL("image/jpeg", serviceImageQuality));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("No pudimos leer la imagen seleccionada."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function imageValueFromControls(urlInput, fileInput) {
+  const file = fileInput?.files?.[0];
+  if (file) return imageFileToDataUrl(file);
+  return urlInput?.value.trim() || "";
+}
+
+function setImagePreview(preview, image) {
+  if (!preview) return;
+  preview.innerHTML = previewImageMarkup(image);
 }
 
 function isAdminLoggedIn() {
@@ -512,15 +562,26 @@ function savePaymentConfig() {
 function renderAdminServices() {
   $("#adminServiceRows").innerHTML = services.map((service) => `
     <article class="admin-row" data-service-id="${service.id}">
+      <div class="service-image-editor">
+        <div class="admin-image-preview">
+          ${previewImageMarkup(service.image)}
+        </div>
+        <div class="service-image-controls">
+          <label>URL de imagen<input data-field="image" type="url" value="${escapeHtml(service.image || "")}" placeholder="https://..." /></label>
+          <label>Cambiar foto<input data-field="imageFile" type="file" accept="image/*" /></label>
+          <p class="slot-empty">Sub&iacute; una foto o peg&aacute; una URL. Si la dej&aacute;s vac&iacute;a, se usa una imagen editorial predeterminada.</p>
+        </div>
+      </div>
       <div class="admin-row-fields">
-        <label>Nombre<input data-field="name" value="${service.name}" /></label>
+        <label>Nombre<input data-field="name" value="${escapeHtml(service.name)}" /></label>
         <label>Precio<input data-field="price" type="number" min="0" step="500" value="${service.price}" /></label>
         <label>Duracion<input data-field="minutes" type="number" min="5" step="5" value="${service.minutes}" /></label>
-        <label>Descripcion<textarea data-field="description" rows="2">${service.description}</textarea></label>
+        <label>Descripcion<textarea data-field="description" rows="2">${escapeHtml(service.description)}</textarea></label>
       </div>
       <div class="admin-row-actions">
         <span class="status-pill ${service.active ? "approved" : "cancelled"}">${service.active ? "Activo" : "Inactivo"}</span>
         <button class="button secondary light save-service" type="button">Guardar</button>
+        <button class="button secondary light clear-service-image" type="button">Quitar foto</button>
         <button class="button secondary light toggle-service" type="button">${service.active ? "Desactivar" : "Activar"}</button>
         <button class="button secondary light delete-service" type="button">Eliminar</button>
       </div>
@@ -528,28 +589,39 @@ function renderAdminServices() {
   `).join("");
 }
 
-function createServiceFromForm() {
+async function createServiceFromForm() {
   const name = $("#newServiceName").value.trim();
   const price = Number($("#newServicePrice").value);
   const minutes = Number($("#newServiceMinutes").value);
   const description = $("#newServiceDescription").value.trim();
   if (!name || !price || !minutes || !description) return;
+  const image = await imageValueFromControls($("#newServiceImageUrl"), $("#newServiceImageFile"));
   const idBase = slug(name) || `servicio-${Date.now()}`;
   const id = services.some((service) => service.id === idBase) ? `${idBase}-${Date.now()}` : idBase;
-  services.push({ id, name, price, minutes, description, active: true, icon: makeIcon(name) });
+  services.push({ id, name, price, minutes, description, image, active: true, icon: makeIcon(name) });
   $("#adminServiceForm").reset();
+  $("#newServiceImagePreview").innerHTML = "<span>Sin foto personalizada</span>";
   saveState();
   renderAdminServices();
 }
 
-function updateService(row) {
+async function updateService(row) {
   const service = services.find((item) => item.id === row.dataset.serviceId);
   if (!service) return;
   service.name = row.querySelector('[data-field="name"]').value.trim();
   service.price = Number(row.querySelector('[data-field="price"]').value);
   service.minutes = Number(row.querySelector('[data-field="minutes"]').value);
   service.description = row.querySelector('[data-field="description"]').value.trim();
+  service.image = await imageValueFromControls(row.querySelector('[data-field="image"]'), row.querySelector('[data-field="imageFile"]'));
   service.icon = makeIcon(service.name);
+  saveState();
+  renderAdminServices();
+}
+
+function clearServiceImage(serviceId) {
+  const service = services.find((item) => item.id === serviceId);
+  if (!service) return;
+  delete service.image;
   saveState();
   renderAdminServices();
 }
@@ -1129,15 +1201,39 @@ function bindEvents() {
 
   $("#adminServiceForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    createServiceFromForm();
+    createServiceFromForm().catch((error) => alert(error.message));
+  });
+
+  $("#newServiceImageUrl").addEventListener("input", () => {
+    setImagePreview($("#newServiceImagePreview"), $("#newServiceImageUrl").value.trim());
+  });
+
+  $("#newServiceImageFile").addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    setImagePreview($("#newServiceImagePreview"), file ? URL.createObjectURL(file) : $("#newServiceImageUrl").value.trim());
   });
 
   $("#adminServiceRows").addEventListener("click", (event) => {
     const row = event.target.closest(".admin-row");
     if (!row) return;
-    if (event.target.closest(".save-service")) updateService(row);
+    if (event.target.closest(".save-service")) updateService(row).catch((error) => alert(error.message));
+    if (event.target.closest(".clear-service-image")) clearServiceImage(row.dataset.serviceId);
     if (event.target.closest(".toggle-service")) toggleService(row.dataset.serviceId);
     if (event.target.closest(".delete-service")) deleteService(row.dataset.serviceId);
+  });
+
+  $("#adminServiceRows").addEventListener("input", (event) => {
+    if (!event.target.matches('[data-field="image"]')) return;
+    const row = event.target.closest(".admin-row");
+    setImagePreview(row?.querySelector(".admin-image-preview"), event.target.value.trim());
+  });
+
+  $("#adminServiceRows").addEventListener("change", (event) => {
+    if (!event.target.matches('[data-field="imageFile"]')) return;
+    const row = event.target.closest(".admin-row");
+    const file = event.target.files?.[0];
+    const currentUrl = row?.querySelector('[data-field="image"]')?.value.trim() || "";
+    setImagePreview(row?.querySelector(".admin-image-preview"), file ? URL.createObjectURL(file) : currentUrl);
   });
 
   $("#reservationRows").addEventListener("click", (event) => {
