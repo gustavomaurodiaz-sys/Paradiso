@@ -1,16 +1,13 @@
 {
-  "routes": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "installCommand": "",
+  "outputDirectory": ".",
+  "rewrites": [
     {
-      "src": "/",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/gestion",
-      "dest": "/gestion.html"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/gestion",
+      "destination": "/gestion.html"
     }
   ]
 }
