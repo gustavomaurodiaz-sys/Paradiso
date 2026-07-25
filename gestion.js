@@ -185,7 +185,10 @@ const storageKeys = {
   adminSession: "paradiso_admin_session",
 };
 
-const adminCredentials = { user: "admin", password: "paradiso2026" };
+const adminSessionModes = {
+  supabase: "supabase",
+  offline: "offline",
+};
 const openMinutes = 8 * 60;
 const closeMinutes = 19 * 60;
 const slotStepMinutes = 30;
@@ -331,7 +334,7 @@ function mergeAdminServices(remoteServices) {
   });
 }
 
-function setOfflineMode(enabled, message = "Modo sin conexion: los cambios se guardan solo en este dispositivo.") {
+function setOfflineMode(enabled, message = "Modo sin conexión: el acceso y los cambios son sólo temporales en este dispositivo.") {
   const notice = $("#offlineModeNotice");
   if (notice) {
     notice.textContent = message;
@@ -671,8 +674,24 @@ function setImagePreview(preview, image) {
   preview.innerHTML = previewImageMarkup(image);
 }
 
+function currentAdminSessionMode() {
+  return sessionStorage.getItem(storageKeys.adminSession);
+}
+
+function setAdminSessionMode(mode) {
+  sessionStorage.setItem(storageKeys.adminSession, mode);
+}
+
+function clearAdminSessionMode() {
+  sessionStorage.removeItem(storageKeys.adminSession);
+}
+
 function isAdminLoggedIn() {
-  return sessionStorage.getItem(storageKeys.adminSession) === "active";
+  return [adminSessionModes.supabase, adminSessionModes.offline].includes(currentAdminSessionMode());
+}
+
+function hasRecoverableOfflineSession() {
+  return isAdminLoggedIn();
 }
 
 function blocksAvailability(reservation) {
@@ -757,7 +776,34 @@ function showAdminView(view) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function showAuthLoading() {
+  const loading = $("#authLoadingScreen");
+  const login = $("#loginScreen");
+  const app = $("#adminApp");
+  if (loading) loading.hidden = false;
+  if (login) login.hidden = true;
+  if (app) app.hidden = true;
+}
+
+function showLogin(message = "", isError = false) {
+  const loading = $("#authLoadingScreen");
+  const login = $("#loginScreen");
+  const app = $("#adminApp");
+  const status = $("#loginStatus");
+  if (loading) loading.hidden = true;
+  if (login) login.hidden = false;
+  if (app) app.hidden = true;
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle("error-status", Boolean(isError));
+  }
+  const passwordInput = $("#adminPassword");
+  if (passwordInput) passwordInput.value = "";
+}
+
 function showAdminApp() {
+  const loading = $("#authLoadingScreen");
+  if (loading) loading.hidden = true;
   $("#loginScreen").hidden = true;
   $("#adminApp").hidden = false;
   renderAllAdmin();
@@ -1750,48 +1796,126 @@ async function testSmtpConfig() {
   }
 }
 
+async function validateSupabaseAdminSession(session) {
+  const auth = window.paradisoSupabase?.auth;
+  if (!auth?.validateAdminSession) throw new Error("Supabase Auth no esta disponible.");
+  await auth.validateAdminSession(session);
+  setAdminSessionMode(adminSessionModes.supabase);
+  setOfflineMode(false);
+}
+
+async function signOutAdmin() {
+  try {
+    await window.paradisoSupabase?.auth?.signOut?.();
+  } catch (error) {
+    if (!window.paradisoSupabase?.isNetworkError?.(error)) {
+      console.warn("No se pudo cerrar la sesion de Supabase.", error);
+    }
+  }
+  clearAdminSessionMode();
+  setOfflineMode(false);
+  showLogin();
+}
+
+async function rejectUnauthorizedSession(error) {
+  try {
+    await window.paradisoSupabase?.auth?.signOut?.();
+  } catch (signOutError) {
+    console.warn("No se pudo cerrar la sesion no autorizada.", signOutError);
+  }
+  clearAdminSessionMode();
+  setOfflineMode(false);
+  showLogin(error?.message || "Acceso no autorizado.", true);
+}
+
+function recoverOfflineSession() {
+  setAdminSessionMode(adminSessionModes.offline);
+  setOfflineMode(true, "Modo sin conexión: el acceso y los cambios son sólo temporales en este dispositivo.");
+  showAdminApp();
+}
+
+function friendlyAuthError(error) {
+  const message = String(error?.message || error || "");
+  const normalized = message.toLowerCase();
+  if (normalized.includes("invalid login credentials")) return "Email o contraseña incorrectos.";
+  if (normalized.includes("email not confirmed")) return "El email todavia no esta confirmado en Supabase Auth.";
+  if (normalized.includes("jwt expired") || normalized.includes("session")) return "La sesion expiro. Vuelve a iniciar sesion.";
+  return message || "No se pudo validar el acceso.";
+}
+
+function subscribeAuthStateChanges() {
+  const auth = window.paradisoSupabase?.auth;
+  if (!auth?.onAuthStateChange) return;
+
+  auth.onAuthStateChange(async (event, session) => {
+    if (event === "SIGNED_OUT") {
+      clearAdminSessionMode();
+      setOfflineMode(false);
+      showLogin();
+      return;
+    }
+
+    if (!session || !["SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) return;
+
+    try {
+      await validateSupabaseAdminSession(session);
+      if ($("#adminApp").hidden) showAdminApp();
+    } catch (error) {
+      await rejectUnauthorizedSession(error);
+    }
+  }).catch((error) => {
+    if (!window.paradisoSupabase?.isNetworkError?.(error)) {
+      console.warn("No se pudo escuchar el estado de autenticacion.", error);
+    }
+  });
+}
+
 function bindEvents() {
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const user = $("#adminUser").value.trim();
+    const user = $("#adminUser").value.trim().toLowerCase();
     const password = $("#adminPassword").value;
-
-    try {
-      if (window.paradisoSupabase?.auth && window.paradisoSupabase.isAvailable?.()) {
-        const { error } = await window.paradisoSupabase.auth.signIn(user, password);
-        if (error) throw error;
-        sessionStorage.setItem(storageKeys.adminSession, "active");
-        $("#loginStatus").textContent = "";
-        showAdminApp();
-        return;
-      }
-    } catch (error) {
-      if (!window.paradisoSupabase?.isNetworkError?.(error)) {
-        setOfflineMode(false);
-        $("#loginStatus").textContent = "No se pudo iniciar sesion en Supabase. Revisar email, contrasena o permisos.";
-        return;
-      }
-      setOfflineMode(true);
-      console.warn("Supabase no respondio. Se usa el acceso local temporalmente.", error);
+    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    const originalLabel = submitButton?.textContent || "Ingresar";
+    let signedInBeforeValidation = false;
+    $("#loginStatus").textContent = "";
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Verificando...";
     }
 
-    if (user === adminCredentials.user && password === adminCredentials.password) {
-      sessionStorage.setItem(storageKeys.adminSession, "active");
+    try {
+      const auth = window.paradisoSupabase?.auth;
+      if (!auth?.signIn || !window.paradisoSupabase.isAvailable?.()) throw new Error("Supabase no esta disponible.");
+      const { data, error } = await auth.signIn(user, password);
+      if (error) throw error;
+      signedInBeforeValidation = true;
+      const session = data?.session || await auth.getSession?.();
+      await validateSupabaseAdminSession(session);
       showAdminApp();
-    } else {
-      $("#loginStatus").textContent = "Usuario o contrasena incorrectos.";
+    } catch (error) {
+      if (window.paradisoSupabase?.isNetworkError?.(error)) {
+        if (hasRecoverableOfflineSession()) {
+          recoverOfflineSession();
+        } else {
+          clearAdminSessionMode();
+          showLogin("Supabase no esta disponible. No se puede iniciar sesion sin conexion.", true);
+        }
+      } else {
+        if (signedInBeforeValidation) await window.paradisoSupabase?.auth?.signOut?.().catch(() => {});
+        clearAdminSessionMode();
+        setOfflineMode(false);
+        showLogin(friendlyAuthError(error), true);
+      }
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalLabel;
+      }
     }
   });
 
-  $("#logoutButton").addEventListener("click", async () => {
-    try {
-      await window.paradisoSupabase?.auth?.signOut?.();
-    } catch (error) {
-      console.warn("No se pudo cerrar la sesion de Supabase.", error);
-    }
-    sessionStorage.removeItem(storageKeys.adminSession);
-    window.location.reload();
-  });
+  $("#logoutButton").addEventListener("click", signOutAdmin);
 
   $("#adminMenuButton").addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1963,29 +2087,33 @@ window.addEventListener("storage", (event) => {
 
 async function initAdmin() {
   bindEvents();
+  showAuthLoading();
+  subscribeAuthStateChanges();
 
   try {
-    const session = await window.paradisoSupabase?.auth?.getSession?.();
+    const auth = window.paradisoSupabase?.auth;
+    if (!auth?.getSession) throw new Error("Supabase no esta disponible.");
+    const session = await auth.getSession();
     if (session) {
-      setOfflineMode(false);
-      sessionStorage.setItem(storageKeys.adminSession, "active");
+      await validateSupabaseAdminSession(session);
       showAdminApp();
       return;
     }
 
-    if (!window.paradisoSupabase?.auth) {
-      setOfflineMode(true);
-      if (isAdminLoggedIn()) showAdminApp();
-    }
+    clearAdminSessionMode();
+    setOfflineMode(false);
+    showLogin();
   } catch (error) {
     if (window.paradisoSupabase?.isNetworkError?.(error)) {
-      setOfflineMode(true);
-      if (isAdminLoggedIn()) showAdminApp();
+      if (hasRecoverableOfflineSession()) {
+        recoverOfflineSession();
+      } else {
+        clearAdminSessionMode();
+        showLogin("Supabase no esta disponible. No se puede iniciar sesion sin conexion.", true);
+      }
       return;
     }
-    sessionStorage.removeItem(storageKeys.adminSession);
-    setOfflineMode(false);
-    console.warn("No se pudo restaurar la sesion de Supabase.", error);
+    await rejectUnauthorizedSession(error);
   }
 }
 

@@ -13,14 +13,23 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body data-page="admin">
-    <section class="login-screen" id="loginScreen" aria-labelledby="login-title">
+    <section class="login-screen" id="authLoadingScreen" aria-live="polite">
+      <div class="login-card">
+        <span class="brand-mark">P</span>
+        <p class="eyebrow">Verificando acceso</p>
+        <h1>Gesti&oacute;n Paradiso</h1>
+        <p class="admin-status">Estamos comprobando tu sesi&oacute;n segura.</p>
+      </div>
+    </section>
+
+    <section class="login-screen" id="loginScreen" aria-labelledby="login-title" hidden>
       <form class="login-card" id="loginForm">
         <span class="brand-mark">P</span>
         <p class="eyebrow">Acceso privado</p>
         <h1 id="login-title">Gesti&oacute;n Paradiso</h1>
         <label>
-          Usuario
-          <input type="text" id="adminUser" autocomplete="username" required />
+          Email
+          <input type="email" id="adminUser" autocomplete="username" required />
         </label>
         <label>
           Contrase&ntilde;a

@@ -7,9 +7,52 @@
   const AVAILABILITY_TABLE = "availability_settings";
   const BLOCKED_SLOTS_TABLE = "blocked_slots";
   const PAYMENT_CONFIG_TABLE = "payment_config";
+  const ADMIN_USERS_TABLE = "admin_users";
+  const AUTH_STORAGE_KEY = "paradiso_supabase_auth";
 
   let clientInstance = null;
   let libraryPromise = null;
+
+  function createMemoryStorage() {
+    const values = new Map();
+    return {
+      getItem: (key) => values.get(key) || null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    };
+  }
+
+  function createIndexedDbStorage() {
+    if (!window.indexedDB) return createMemoryStorage();
+    const dbName = "paradiso_auth_storage";
+    const storeName = "auth";
+    const openDb = () => new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(dbName, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore(storeName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const withStore = async (mode, callback) => {
+      const db = await openDb();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, mode);
+        const store = transaction.objectStore(storeName);
+        const request = callback(store);
+        request.onsuccess = () => resolve(request.result ?? null);
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => db.close();
+        transaction.onerror = () => {
+          db.close();
+          reject(transaction.error);
+        };
+      });
+    };
+    return {
+      getItem: (key) => withStore("readonly", (store) => store.get(key)),
+      setItem: (key, value) => withStore("readwrite", (store) => store.put(value, key)).then(() => undefined),
+      removeItem: (key) => withStore("readwrite", (store) => store.delete(key)).then(() => undefined),
+    };
+  }
 
   function loadSupabaseLibrary() {
     if (window.supabase?.createClient) return Promise.resolve();
@@ -44,7 +87,22 @@
     if (clientInstance) return clientInstance;
     await loadSupabaseLibrary();
     if (!window.supabase?.createClient) throw new Error("Supabase no esta disponible.");
-    clientInstance = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    try {
+      window.localStorage?.removeItem("sb-rxyvkethwncmrfmphacb-auth-token");
+      window.localStorage?.removeItem(AUTH_STORAGE_KEY);
+      window.sessionStorage?.removeItem(AUTH_STORAGE_KEY);
+    } catch (error) {
+      // Storage cleanup is best-effort only.
+    }
+    clientInstance = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: AUTH_STORAGE_KEY,
+        storage: createIndexedDbStorage(),
+      },
+    });
     return clientInstance;
   }
 
@@ -54,11 +112,53 @@
       message.includes("supabase no respondio")
       || message.includes("no se pudo cargar supabase")
       || message.includes("supabase no esta disponible")
+      || message.includes("timeout")
       || message.includes("failed to fetch")
       || message.includes("networkerror")
       || message.includes("network request failed")
       || message.includes("load failed")
     );
+  }
+
+  function isActiveAdminProfile(profile) {
+    if (!profile) return false;
+    if (profile.active === false) return false;
+    if (profile.role && profile.role !== "admin") return false;
+    return true;
+  }
+
+  async function getAdminProfileForUser(user) {
+    const supabaseClient = await client();
+    if (!user?.id) throw new Error("No hay una sesion de administrador activa.");
+
+    let { data, error } = await supabaseClient
+      .from(ADMIN_USERS_TABLE)
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data && user.email) {
+      const emailLookup = await supabaseClient
+        .from(ADMIN_USERS_TABLE)
+        .select("*")
+        .eq("email", user.email)
+        .maybeSingle();
+
+      if (emailLookup.error) throw emailLookup.error;
+      data = emailLookup.data;
+    }
+
+    if (!data) throw new Error("Acceso no autorizado. Este usuario no esta registrado como administrador.");
+    if (!isActiveAdminProfile(data)) throw new Error("Acceso no autorizado. El usuario administrador esta inactivo.");
+    return data;
+  }
+
+  async function validateAdminSession(session) {
+    if (!session?.user) throw new Error("La sesion expiro. Vuelve a iniciar sesion.");
+    const admin = await getAdminProfileForUser(session.user);
+    return { session, user: session.user, admin };
   }
 
   function toAppService(row) {
@@ -464,6 +564,20 @@
     return data.session;
   }
 
+  async function getValidatedAdminSession() {
+    const session = await getSession();
+    if (!session) return null;
+    return validateAdminSession(session);
+  }
+
+  async function onAuthStateChange(callback) {
+    const supabaseClient = await client();
+    const { data } = supabaseClient.auth.onAuthStateChange((event, session) => {
+      callback(event, session);
+    });
+    return data?.subscription || data;
+  }
+
   window.paradisoSupabase = {
     isAvailable: () => true,
     isNetworkError,
@@ -471,6 +585,9 @@
       signIn,
       signOut,
       getSession,
+      getValidatedAdminSession,
+      validateAdminSession,
+      onAuthStateChange,
     },
     services: {
       list: listServices,

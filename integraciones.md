@@ -77,12 +77,11 @@ El sistema evita reservas que empiecen, terminen o cubran un turno ya ocupado.
 - Ver horarios ocupados y disponibles por fecha.
 - Configurar SMTP y enviar una prueba real al correo administrador.
 
-Credenciales iniciales:
+Acceso administrador:
 
-- Usuario: `admin`
-- Contrasena: `paradiso2026`
-
-Importante: al ser una web estatica, esta proteccion es solo una barrera visual del lado del navegador. Para seguridad real, el panel debe estar protegido por backend.
+- El panel usa Supabase Auth.
+- El usuario debe existir en Supabase Auth y tambien estar autorizado en `public.admin_users`.
+- No guardar contrasenas ni credenciales fijas en el codigo o la documentacion.
 
 ## SMTP
 
