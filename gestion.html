@@ -129,6 +129,33 @@
               <p class="admin-status" id="notificationTemplateStatus" aria-live="polite"></p>
             </form>
           </section>
+          <section class="admin-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">WhatsApp</p>
+                <h3>N&uacute;mero para consultas</h3>
+              </div>
+            </div>
+            <form class="admin-form" id="whatsappSettingsForm">
+              <div class="form-row">
+                <label>N&uacute;mero de WhatsApp para consultas
+                  <input type="tel" id="whatsappConsultNumber" inputmode="numeric" pattern="[0-9]*" placeholder="5493751XXXXXX" />
+                </label>
+                <label>Estado
+                  <select id="whatsappConsultActive">
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </label>
+              </div>
+              <label>Mensaje inicial
+                <textarea id="whatsappConsultMessage" rows="2" placeholder="Hola, quisiera consultar por un turno en Paradiso Nails."></textarea>
+              </label>
+              <p class="slot-empty" id="whatsappLinkPreview">El bot&oacute;n se ocultar&aacute; hasta cargar un n&uacute;mero v&aacute;lido.</p>
+              <button class="button primary admin-action" type="submit">Guardar WhatsApp</button>
+              <p class="admin-status" id="whatsappSettingsStatus" hidden aria-live="polite"></p>
+            </form>
+          </section>
         </section>
 
         <section class="admin-section" id="servicios-admin" aria-labelledby="admin-services-title" data-admin-view-panel="servicios" hidden>
@@ -348,22 +375,20 @@
           </div>
           <section class="admin-panel">
             <form class="admin-form" id="smtpForm">
-              <div class="form-row">
-                <label>Servidor SMTP<input type="text" id="smtpHost" placeholder="smtp.gmail.com" /></label>
-                <label>Puerto<input type="number" id="smtpPort" placeholder="587" /></label>
-              </div>
-              <div class="form-row">
-                <label>Usuario SMTP<input type="text" id="smtpUser" /></label>
-                <label>Contrase&ntilde;a<input type="password" id="smtpPassword" /></label>
-              </div>
+              <p class="slot-empty">Credenciales configuradas en Supabase Edge Function. La contrase&ntilde;a SMTP no se guarda ni se muestra en esta pantalla.</p>
               <div class="form-row">
                 <label>Correo remitente<input type="email" id="smtpFrom" /></label>
                 <label>Nombre del remitente<input type="text" id="smtpFromName" placeholder="Paradiso Nails" /></label>
               </div>
               <div class="form-row">
                 <label>Correo administrador<input type="email" id="smtpAdminEmail" /></label>
+                <label>Estado
+                  <select id="smtpActive">
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </label>
               </div>
-              <label class="checkbox-label"><input type="checkbox" id="smtpSecure" /> Seguridad STARTTLS / SSL-TLS</label>
               <div class="form-row compact-actions">
                 <button class="button primary admin-action" type="submit">Guardar SMTP</button>
                 <button class="button secondary light" id="smtpTestButton" type="button">Probar env&iacute;o de correo</button>

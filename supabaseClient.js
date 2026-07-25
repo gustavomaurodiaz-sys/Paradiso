@@ -547,6 +547,47 @@
     return (data || []).map(toAppReservation);
   }
 
+  function emailFunctionError(error, data) {
+    const message = String(data?.error || error?.message || error || "");
+    const lower = message.toLowerCase();
+    if (lower.includes("not found") || lower.includes("404") || lower.includes("failed to send a request")) {
+      return new Error("La funcion de correo no esta desplegada o no responde.");
+    }
+    if (lower.includes("missing_secret")) return new Error("Falta configurar uno o mas secretos SMTP en Supabase.");
+    if (lower.includes("auth_rejected")) return new Error("Supabase rechazo el acceso a la funcion de correo.");
+    if (lower.includes("credentials_rejected")) return new Error("Gmail rechazo las credenciales SMTP. Revisar usuario y contrasena de aplicacion.");
+    if (lower.includes("connection_refused")) return new Error("Gmail rechazo la conexion SMTP o el puerto esta bloqueado.");
+    if (lower.includes("timeout")) return new Error("La conexion SMTP supero el tiempo de espera.");
+    if (lower.includes("starttls_failed")) return new Error("Fallo STARTTLS. Para Gmail usar puerto 587 con STARTTLS activo y secure inicial false.");
+    if (lower.includes("invalid_recipient")) return new Error("El destinatario configurado no es valido.");
+    return new Error(message || "No se pudo enviar el correo desde la funcion segura.");
+  }
+
+  async function invokeEmailFunction(payload) {
+    const supabaseClient = await client();
+    const { data, error } = await supabaseClient.functions.invoke("send-email", {
+      body: payload,
+    });
+    let errorData = data;
+    if (error?.context?.json) {
+      try {
+        errorData = await error.context.json();
+      } catch (contextError) {
+        errorData = data;
+      }
+    }
+    if (error || errorData?.success === false) throw emailFunctionError(error, errorData);
+    return data || { success: true };
+  }
+
+  async function sendEmail(payload) {
+    return invokeEmailFunction(payload);
+  }
+
+  async function sendTestEmail({ to } = {}) {
+    return invokeEmailFunction({ type: "test", to });
+  }
+
   async function signIn(email, password) {
     const supabaseClient = await client();
     return supabaseClient.auth.signInWithPassword({ email, password });
@@ -609,6 +650,10 @@
       list: listReservations,
       update: updateReservation,
       markSeen: markReservationsSeen,
+    },
+    email: {
+      send: sendEmail,
+      sendTest: sendTestEmail,
     },
   };
 })();

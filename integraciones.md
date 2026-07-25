@@ -85,9 +85,21 @@ Acceso administrador:
 
 ## SMTP
 
-El navegador usa el backend Node.js local incluido en `server-local.js` para enviar correos reales con Nodemailer cuando se prueba en la computadora.
+El navegador no debe guardar ni enviar credenciales SMTP. El envio real se realiza desde la Supabase Edge Function `send-email`, usando secretos del entorno.
 
-La configuracion SMTP permite probar el envio al correo administrador y enviar consejos de cuidado a la clienta desde el panel, sin abrir clientes externos de correo. Para Gmail usar `smtp.gmail.com`, puerto `587`, seguridad STARTTLS / SSL-TLS activada y una contrasena de aplicacion de Google.
+Secretos necesarios:
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `SMTP_FROM_EMAIL`
+- `SMTP_FROM_NAME`
+- `SMTP_ADMIN_EMAIL`
+- `SMTP_STARTTLS`
+- `SMTP_SECURE`
+
+Para Gmail usar `smtp.gmail.com`, puerto `587`, `SMTP_STARTTLS=true` y `SMTP_SECURE=false`. La contrasena debe ser una contrasena de aplicacion de Google configurada como secreto, nunca en el frontend.
 
 Cuando se genere una reserva, el backend deberia enviar al administrador:
 

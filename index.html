@@ -24,7 +24,7 @@
       <nav aria-label="Principal">
         <a href="#home" data-step-target="home">Home</a>
         <a href="#servicios-disponibles" data-step-target="servicios-disponibles">Servicios</a>
-        <a id="headerWhatsappLink" href="https://wa.me/5490000000000" target="_blank" rel="noreferrer">WhatsApp</a>
+        <a id="headerWhatsappLink" target="_blank" rel="noopener noreferrer" hidden>WhatsApp</a>
       </nav>
     </header>
     <div class="offline-mode-banner" id="bookingOfflineNotice" role="status" hidden>
@@ -72,10 +72,9 @@
             <a
               class="button secondary"
               id="whatsappLink"
-              href="https://wa.me/5490000000000"
               target="_blank"
-              rel="noreferrer"
-              data-whatsapp-number="5490000000000"
+              rel="noopener noreferrer"
+              hidden
             >
               Consultar por WhatsApp
             </a>

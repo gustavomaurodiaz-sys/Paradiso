@@ -36,10 +36,15 @@ const storageKeys = {
   smtp: "paradiso_smtp_config",
   outbox: "paradiso_email_outbox",
   paymentConfig: "paradiso_payment_config",
+  whatsappConfig: "paradiso_whatsapp_config",
 };
 
 const flowStepIds = ["home", "servicios-disponibles", "reserva-guiada", "fecha-horario", "confirmacion-pago"];
-const defaultWhatsappNumber = "5490000000000";
+const defaultWhatsappConfig = {
+  number: "",
+  message: "Hola, quisiera consultar por un turno en Paradiso Nails.",
+  active: true,
+};
 const statusLabels = {
   pending_validation: "Pendiente de validacion de pago",
   confirmed: "Reserva confirmada",
@@ -69,9 +74,10 @@ const $ = (selector) => document.querySelector(selector);
 
 let services = loadList(storageKeys.services, defaultServices);
 let reservations = loadList(storageKeys.reservations, []);
-let smtpConfig = loadObject(storageKeys.smtp, {});
+let smtpConfig = sanitizeSmtpConfig(loadObject(storageKeys.smtp, {}));
 let emailOutbox = loadList(storageKeys.outbox, []);
 let paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
+let whatsappConfig = loadObject(storageKeys.whatsappConfig, defaultWhatsappConfig);
 let selectedServiceIds = [];
 let selectedDate = "";
 let selectedStartTime = "";
@@ -79,6 +85,7 @@ let availabilitySettings = { ...defaultAvailability };
 let blockedSlots = [];
 let bookingUsesLocalFallback = false;
 let reservationSubmitInProgress = false;
+cleanStoredSmtpSecrets();
 
 function loadList(key, fallback) {
   try {
@@ -96,6 +103,45 @@ function loadObject(key, fallback) {
   } catch (error) {
     return fallback;
   }
+}
+
+function sanitizeSmtpConfig(config = {}) {
+  return {
+    from: config.from || "",
+    fromName: config.fromName || "",
+    adminEmail: config.adminEmail || "",
+    active: config.active !== false,
+  };
+}
+
+function cleanStoredSmtpSecrets() {
+  const raw = localStorage.getItem(storageKeys.smtp);
+  if (!raw) return;
+
+  try {
+    const parsed = JSON.parse(raw);
+    const hasSensitiveValue = Boolean(parsed?.host || parsed?.port || parsed?.user || parsed?.password || parsed?.secure !== undefined);
+    if (hasSensitiveValue) {
+      smtpConfig = sanitizeSmtpConfig(parsed);
+      localStorage.setItem(storageKeys.smtp, JSON.stringify(smtpConfig));
+    }
+  } catch (error) {
+    localStorage.removeItem(storageKeys.smtp);
+    smtpConfig = sanitizeSmtpConfig({});
+  }
+}
+
+function sanitizeWhatsappNumber(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function configuredWhatsappUrl() {
+  whatsappConfig = loadObject(storageKeys.whatsappConfig, defaultWhatsappConfig);
+  const number = sanitizeWhatsappNumber(whatsappConfig.number);
+  if (!whatsappConfig.active || !number) return "";
+  const message = String(whatsappConfig.message || defaultWhatsappConfig.message).trim();
+  const query = message ? `?text=${encodeURIComponent(message)}` : "";
+  return `https://wa.me/${number}${query}`;
 }
 
 function cacheServices(nextServices) {
@@ -174,12 +220,18 @@ function validateServiceSelection(messageTarget = "#selectionError") {
 }
 
 function syncWhatsappLinks() {
-  const configuredNumber = $("#whatsappLink")?.dataset.whatsappNumber || defaultWhatsappNumber;
-  const text = encodeURIComponent("Hola Paradiso, quiero consultar por un turno.");
-  const url = `https://wa.me/${configuredNumber}?text=${text}`;
+  const url = configuredWhatsappUrl();
   ["#whatsappLink", "#headerWhatsappLink"].forEach((selector) => {
     const link = $(selector);
-    if (link) link.href = url;
+    if (!link) return;
+    link.hidden = !url;
+    if (url) {
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    } else {
+      link.removeAttribute("href");
+    }
   });
 }
 
@@ -762,11 +814,13 @@ function bindHeroParallax() {
 }
 
 window.addEventListener("storage", (event) => {
-  if (![storageKeys.services, storageKeys.reservations, storageKeys.paymentConfig].includes(event.key)) return;
+  if (![storageKeys.services, storageKeys.reservations, storageKeys.paymentConfig, storageKeys.whatsappConfig].includes(event.key)) return;
   services = loadList(storageKeys.services, defaultServices);
   reservations = loadList(storageKeys.reservations, []);
   paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
+  whatsappConfig = loadObject(storageKeys.whatsappConfig, defaultWhatsappConfig);
   selectedServiceIds = selectedServiceIds.filter((id) => services.some((service) => service.id === id && service.active));
+  syncWhatsappLinks();
   renderServices();
   renderSelection();
   renderSlots();

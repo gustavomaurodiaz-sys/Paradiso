@@ -182,6 +182,7 @@ const storageKeys = {
   availabilitySettings: "paradiso_availability_settings",
   blockedSlots: "paradiso_blocked_slots",
   notificationTemplates: "paradiso_notification_templates",
+  whatsappConfig: "paradiso_whatsapp_config",
   adminSession: "paradiso_admin_session",
 };
 
@@ -195,19 +196,24 @@ const slotStepMinutes = 30;
 const provisionalLimitMs = 24 * 60 * 60 * 1000;
 const serviceImageMaxSize = 1100;
 const serviceImageQuality = 0.78;
+const defaultWhatsappConfig = {
+  number: "",
+  message: "Hola, quisiera consultar por un turno en Paradiso Nails.",
+  active: true,
+};
 const formatter = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
-const localEmailApiUrl = "http://localhost:8095/api/send-email";
 
 let services = loadList(storageKeys.services, defaultServices);
 let reservations = normalizeReservations(loadList(storageKeys.reservations, []));
-let smtpConfig = loadObject(storageKeys.smtp, {});
+let smtpConfig = sanitizeSmtpConfig(loadObject(storageKeys.smtp, {}));
 let paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
 let availabilitySettings = loadObject(storageKeys.availabilitySettings, defaultAvailabilitySettings);
 let blockedSlots = loadList(storageKeys.blockedSlots, []);
 let notificationTemplates = loadNotificationTemplates();
 let emailOutbox = loadList(storageKeys.outbox, []);
+let whatsappConfig = loadObject(storageKeys.whatsappConfig, defaultWhatsappConfig);
 let activeReservationFilter = "all";
 let visibleMonth = new Date();
 let selectedCalendarDate = todayKey();
@@ -215,6 +221,7 @@ let activeAdminView = "menu";
 let editingBlockedSlotId = "";
 const aftercareSendInProgress = new Set();
 visibleMonth.setDate(1);
+cleanStoredSmtpSecrets();
 
 function loadList(key, fallback) {
   try {
@@ -232,6 +239,44 @@ function loadObject(key, fallback) {
   } catch (error) {
     return fallback;
   }
+}
+
+function sanitizeSmtpConfig(config = {}) {
+  return {
+    from: config.from || "",
+    fromName: config.fromName || "",
+    adminEmail: config.adminEmail || "",
+    active: config.active !== false,
+  };
+}
+
+function cleanStoredSmtpSecrets() {
+  const raw = localStorage.getItem(storageKeys.smtp);
+  if (!raw) return;
+
+  try {
+    const parsed = JSON.parse(raw);
+    const hasSensitiveValue = Boolean(parsed?.host || parsed?.port || parsed?.user || parsed?.password || parsed?.secure !== undefined);
+    if (hasSensitiveValue) {
+      smtpConfig = sanitizeSmtpConfig(parsed);
+      localStorage.setItem(storageKeys.smtp, JSON.stringify(smtpConfig));
+    }
+  } catch (error) {
+    localStorage.removeItem(storageKeys.smtp);
+    smtpConfig = sanitizeSmtpConfig({});
+  }
+}
+
+function sanitizeWhatsappNumber(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function whatsappUrl(config = whatsappConfig) {
+  const number = sanitizeWhatsappNumber(config.number);
+  if (!config.active || !number) return "";
+  const message = String(config.message || defaultWhatsappConfig.message).trim();
+  const query = message ? `?text=${encodeURIComponent(message)}` : "";
+  return `https://wa.me/${number}${query}`;
 }
 
 function loadNotificationTemplates() {
@@ -277,23 +322,26 @@ function normalizeReservations(items) {
 function refreshStateFromStorage() {
   services = loadList(storageKeys.services, defaultServices);
   reservations = normalizeReservations(loadList(storageKeys.reservations, []));
-  smtpConfig = loadObject(storageKeys.smtp, {});
+  smtpConfig = sanitizeSmtpConfig(loadObject(storageKeys.smtp, {}));
   paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
   availabilitySettings = loadObject(storageKeys.availabilitySettings, defaultAvailabilitySettings);
   blockedSlots = loadList(storageKeys.blockedSlots, []);
   notificationTemplates = loadNotificationTemplates();
   emailOutbox = loadList(storageKeys.outbox, []);
+  whatsappConfig = loadObject(storageKeys.whatsappConfig, defaultWhatsappConfig);
+  cleanStoredSmtpSecrets();
 }
 
 function saveState() {
   localStorage.setItem(storageKeys.services, JSON.stringify(services));
   localStorage.setItem(storageKeys.reservations, JSON.stringify(reservations));
-  localStorage.setItem(storageKeys.smtp, JSON.stringify(smtpConfig));
+  localStorage.setItem(storageKeys.smtp, JSON.stringify(sanitizeSmtpConfig(smtpConfig)));
   localStorage.setItem(storageKeys.paymentConfig, JSON.stringify(paymentConfig));
   localStorage.setItem(storageKeys.availabilitySettings, JSON.stringify(availabilitySettings));
   localStorage.setItem(storageKeys.blockedSlots, JSON.stringify(blockedSlots));
   localStorage.setItem(storageKeys.notificationTemplates, JSON.stringify(notificationTemplates));
   localStorage.setItem(storageKeys.outbox, JSON.stringify(emailOutbox));
+  localStorage.setItem(storageKeys.whatsappConfig, JSON.stringify(whatsappConfig));
 }
 
 function saveServicesState() {
@@ -817,6 +865,7 @@ function showAdminApp() {
 function renderAllAdmin() {
   renderNotification();
   renderNotificationTemplates();
+  renderWhatsappConfigForm();
   renderPaymentConfigForm();
   renderPaymentSummary();
   renderAvailabilitySettings();
@@ -860,6 +909,48 @@ function renderNotificationTemplates() {
       </article>
     `;
   }).join("");
+}
+
+function renderWhatsappPreview() {
+  const preview = $("#whatsappLinkPreview");
+  if (!preview) return;
+  const numberInput = $("#whatsappConsultNumber");
+  if (numberInput) numberInput.value = sanitizeWhatsappNumber(numberInput.value);
+  const nextConfig = {
+    number: numberInput?.value || whatsappConfig.number,
+    message: $("#whatsappConsultMessage")?.value || whatsappConfig.message,
+    active: $("#whatsappConsultActive")?.value !== "false",
+  };
+  const url = whatsappUrl(nextConfig);
+  preview.textContent = url ? `Vista previa: ${url}` : "El boton se ocultara hasta cargar un numero valido.";
+}
+
+function renderWhatsappConfigForm() {
+  $("#whatsappConsultNumber").value = sanitizeWhatsappNumber(whatsappConfig.number);
+  $("#whatsappConsultActive").value = String(whatsappConfig.active !== false);
+  $("#whatsappConsultMessage").value = whatsappConfig.message || defaultWhatsappConfig.message;
+  renderWhatsappPreview();
+}
+
+function saveWhatsappConfig() {
+  const number = sanitizeWhatsappNumber($("#whatsappConsultNumber").value);
+  const active = $("#whatsappConsultActive").value === "true";
+  const message = $("#whatsappConsultMessage").value.trim() || defaultWhatsappConfig.message;
+  const status = $("#whatsappSettingsStatus");
+
+  if (active && !number) {
+    status.textContent = "Cargá un número válido o dejá WhatsApp inactivo.";
+    status.classList.add("error-status");
+    status.hidden = false;
+    return;
+  }
+
+  whatsappConfig = { number, message, active };
+  localStorage.setItem(storageKeys.whatsappConfig, JSON.stringify(whatsappConfig));
+  renderWhatsappPreview();
+  status.textContent = "WhatsApp guardado correctamente.";
+  status.classList.remove("error-status");
+  status.hidden = false;
 }
 
 function saveNotificationTemplates() {
@@ -1424,49 +1515,23 @@ function showAftercareStatus(message, isError = false) {
 }
 
 function isSmtpConfigComplete() {
-  return Boolean(smtpConfig.host && smtpConfig.port && smtpConfig.user && smtpConfig.password && smtpConfig.from);
+  return smtpConfig.active !== false;
 }
 
 async function sendEmailWithSmtp({ to, subject, body }) {
   if (!isSmtpConfigComplete()) {
-    throw new Error("La configuracion SMTP esta incompleta. Revisar servidor, puerto, usuario, contrasena y correo remitente.");
+    throw new Error("El envio de correo esta desactivado en gestion.");
   }
 
-  let response;
-  const payload = JSON.stringify({
-    smtp: smtpConfig,
-    email: {
-      to,
-      subject,
-      body,
-      from: smtpConfig.from,
-      fromName: smtpConfig.fromName || "Paradiso Nails",
-    },
+  const emailApi = window.paradisoSupabase?.email;
+  if (!emailApi?.send) throw new Error("La funcion segura de correo no esta disponible.");
+
+  return emailApi.send({
+    type: "custom",
+    to,
+    subject,
+    body,
   });
-  const endpoints = window.location.protocol === "file:" ? [localEmailApiUrl] : ["/api/send-email", localEmailApiUrl];
-
-  try {
-    for (const endpoint of endpoints) {
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-        });
-        break;
-      } catch (error) {
-        if (endpoint === endpoints[endpoints.length - 1]) throw error;
-      }
-    }
-  } catch (error) {
-    throw new Error("No se pudo conectar con el servicio de envio SMTP. Abrir el panel desde http://localhost:8095/gestion.html y verificar que el servidor local este iniciado.");
-  }
-
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.success === false) {
-    throw new Error(result.error || "El servicio SMTP no pudo enviar el correo.");
-  }
-  return result;
 }
 
 function renderFinishedWork() {
@@ -1732,62 +1797,50 @@ function setSmtpStatus(message, isError = false) {
 }
 
 function renderSmtpForm() {
-  $("#smtpHost").value = smtpConfig.host || "";
-  $("#smtpPort").value = smtpConfig.port || "";
-  $("#smtpUser").value = smtpConfig.user || "";
-  $("#smtpPassword").value = smtpConfig.password || "";
+  smtpConfig = sanitizeSmtpConfig(smtpConfig);
   $("#smtpFrom").value = smtpConfig.from || "";
   $("#smtpFromName").value = smtpConfig.fromName || "";
   $("#smtpAdminEmail").value = smtpConfig.adminEmail || "";
-  $("#smtpSecure").checked = Boolean(smtpConfig.secure);
+  $("#smtpActive").value = String(smtpConfig.active !== false);
 }
 
 function saveSmtpConfig() {
   smtpConfig = {
-    host: $("#smtpHost").value.trim(),
-    port: $("#smtpPort").value.trim(),
-    user: $("#smtpUser").value.trim(),
-    password: $("#smtpPassword").value,
     from: $("#smtpFrom").value.trim(),
     fromName: $("#smtpFromName").value.trim(),
     adminEmail: $("#smtpAdminEmail").value.trim(),
-    secure: $("#smtpSecure").checked,
+    active: $("#smtpActive").value === "true",
   };
-  saveState();
+  localStorage.setItem(storageKeys.smtp, JSON.stringify(sanitizeSmtpConfig(smtpConfig)));
   setSmtpStatus("Configuracion SMTP guardada.");
 }
 
 async function testSmtpConfig() {
   saveSmtpConfig();
-  const testTo = smtpConfig.adminEmail?.trim();
   const button = $("#smtpTestButton");
 
-  if (!testTo) {
-    setSmtpStatus("No se pudo enviar la prueba: falta el correo administrador.", true);
+  if (smtpConfig.active === false) {
+    setSmtpStatus("No se pudo enviar la prueba: el envio de correo esta desactivado.", true);
     return;
   }
 
   button.disabled = true;
   button.textContent = "Enviando...";
-  setSmtpStatus("Enviando correo real de prueba...");
+  setSmtpStatus("Enviando correo real de prueba desde la funcion segura...");
 
   try {
-    await sendEmailWithSmtp({
-      to: testTo,
-      subject: "Prueba SMTP Paradiso",
-      body: [
-        "Hola,",
-        "",
-        "Este es un correo real de prueba enviado desde la configuracion SMTP de Paradiso Nails.",
-        "",
-        "Si recibiste este mensaje, el envio SMTP quedo funcionando correctamente.",
-      ].join("\n"),
+    const emailApi = window.paradisoSupabase?.email;
+    if (!emailApi?.sendTest) throw new Error("La funcion segura de correo no esta disponible.");
+    const result = await emailApi.sendTest({
+      to: smtpConfig.adminEmail || undefined,
     });
-    emailOutbox.unshift({ to: testTo, type: "test", subject: "Prueba SMTP Paradiso", createdAt: new Date().toISOString(), status: "sent" });
+    const sentTo = result?.to || smtpConfig.adminEmail || "correo administrador configurado en Supabase";
+    emailOutbox.unshift({ to: sentTo, type: "test", subject: "Prueba SMTP Paradiso", createdAt: new Date().toISOString(), status: "sent" });
     saveState();
-    setSmtpStatus(`Correo de prueba enviado correctamente a ${testTo}.`);
+    setSmtpStatus(`Correo de prueba enviado correctamente a ${sentTo}.`);
   } catch (error) {
-    emailOutbox.unshift({ to: testTo, type: "test", subject: "Prueba SMTP Paradiso", createdAt: new Date().toISOString(), status: "failed", error: error.message });
+    const sentTo = smtpConfig.adminEmail || "correo administrador configurado en Supabase";
+    emailOutbox.unshift({ to: sentTo, type: "test", subject: "Prueba SMTP Paradiso", createdAt: new Date().toISOString(), status: "failed", error: error.message });
     saveState();
     setSmtpStatus(`No se pudo enviar el correo de prueba: ${error.message}`, true);
   } finally {
@@ -1992,6 +2045,16 @@ function bindEvents() {
 
   $("#resetNotificationTemplates").addEventListener("click", resetNotificationTemplates);
 
+  $("#whatsappSettingsForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveWhatsappConfig();
+  });
+
+  ["#whatsappConsultNumber", "#whatsappConsultActive", "#whatsappConsultMessage"].forEach((selector) => {
+    $(selector).addEventListener("input", renderWhatsappPreview);
+    $(selector).addEventListener("change", renderWhatsappPreview);
+  });
+
   $("#adminServiceForm").addEventListener("submit", (event) => {
     event.preventDefault();
     createServiceFromForm().catch((error) => alert(error.message));
@@ -2080,7 +2143,7 @@ function bindEvents() {
 }
 
 window.addEventListener("storage", (event) => {
-  if (![storageKeys.services, storageKeys.reservations, storageKeys.smtp, storageKeys.paymentConfig, storageKeys.availabilitySettings, storageKeys.blockedSlots, storageKeys.notificationTemplates].includes(event.key)) return;
+  if (![storageKeys.services, storageKeys.reservations, storageKeys.smtp, storageKeys.paymentConfig, storageKeys.availabilitySettings, storageKeys.blockedSlots, storageKeys.notificationTemplates, storageKeys.whatsappConfig].includes(event.key)) return;
   refreshStateFromStorage();
   if (isAdminLoggedIn()) renderAllAdmin();
 });
