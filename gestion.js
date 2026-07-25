@@ -498,6 +498,55 @@ async function runAvailabilityOperation(remoteOperation, localFallback) {
   }
 }
 
+async function refreshPaymentConfigFromSupabase(renderAfterLoad = true) {
+  const bookingApi = window.paradisoSupabase?.booking;
+  if (!bookingApi) {
+    setOfflineMode(true);
+    return false;
+  }
+
+  try {
+    paymentConfig = await bookingApi.getPaymentConfig();
+    localStorage.setItem(storageKeys.paymentConfig, JSON.stringify(paymentConfig));
+    setOfflineMode(false);
+    if (renderAfterLoad && isAdminLoggedIn()) {
+      renderPaymentConfigForm();
+      renderPaymentSummary();
+    }
+    return true;
+  } catch (error) {
+    if (window.paradisoSupabase?.isNetworkError?.(error)) {
+      setOfflineMode(true);
+    } else {
+      setOfflineMode(false);
+      console.warn("No se pudo cargar la configuracion de pago desde Supabase.", error);
+    }
+    return false;
+  }
+}
+
+async function runPaymentConfigOperation(remoteOperation, localFallback) {
+  const api = window.paradisoSupabase;
+  if (!api?.booking || !api.isAvailable?.()) {
+    setOfflineMode(true);
+    return localFallback();
+  }
+
+  try {
+    const result = await remoteOperation(api.booking);
+    setOfflineMode(false);
+    return result;
+  } catch (error) {
+    if (api.isNetworkError?.(error)) {
+      setOfflineMode(true);
+      console.warn("Supabase no respondio. Se usa configuracion de pago local temporalmente.", error);
+      return localFallback();
+    }
+    setOfflineMode(false);
+    throw error;
+  }
+}
+
 function money(value) {
   return formatter.format(value || 0).replace(/\s/g, "");
 }
@@ -716,6 +765,7 @@ function showAdminApp() {
   refreshServicesFromSupabase();
   refreshReservationsFromSupabase();
   refreshAvailabilityFromSupabase();
+  refreshPaymentConfigFromSupabase();
 }
 
 function renderAllAdmin() {
@@ -787,12 +837,20 @@ function resetNotificationTemplates() {
 }
 
 function renderPaymentConfigForm() {
+  $("#paymentDepositEnabled").value = Number(paymentConfig.depositValue || 0) > 0 ? "true" : "false";
   $("#paymentDepositMode").value = paymentConfig.depositMode || "amount";
   $("#paymentDepositValue").value = paymentConfig.depositValue || "";
   $("#paymentAlias").value = paymentConfig.alias || "";
   $("#paymentHolder").value = paymentConfig.holder || "";
   $("#paymentCbu").value = paymentConfig.cbu || "";
   $("#paymentMessage").value = paymentConfig.message || "";
+  togglePaymentDepositFields();
+}
+
+function togglePaymentDepositFields() {
+  const enabled = $("#paymentDepositEnabled")?.value !== "false";
+  if ($("#paymentDepositMode")) $("#paymentDepositMode").disabled = !enabled;
+  if ($("#paymentDepositValue")) $("#paymentDepositValue").disabled = !enabled;
 }
 
 function renderPaymentSummary() {
@@ -816,18 +874,45 @@ function renderPaymentSummary() {
   `;
 }
 
-function savePaymentConfig() {
-  paymentConfig = {
+function paymentConfigFromForm() {
+  const depositEnabled = $("#paymentDepositEnabled").value === "true";
+  const depositMode = $("#paymentDepositMode").value;
+  const rawValue = $("#paymentDepositValue").value;
+  const depositValue = depositEnabled ? Number(rawValue || 0) : 0;
+  return {
     depositMode: $("#paymentDepositMode").value,
-    depositValue: Number($("#paymentDepositValue").value || 0),
+    depositValue,
     alias: $("#paymentAlias").value.trim(),
     holder: $("#paymentHolder").value.trim(),
     cbu: $("#paymentCbu").value.trim(),
     message: $("#paymentMessage").value.trim(),
   };
-  saveState();
+}
+
+function validatePaymentConfig(config) {
+  if (!Number.isFinite(config.depositValue)) return "La seña debe ser un número válido.";
+  if (config.depositValue < 0) return "La seña no puede ser negativa.";
+  if (config.depositMode === "percent" && config.depositValue > 100) return "El porcentaje de seña debe estar entre 0 y 100.";
+  if (!["amount", "percent"].includes(config.depositMode)) return "El tipo de seña no es válido.";
+  return "";
+}
+
+async function savePaymentConfig() {
+  const nextConfig = paymentConfigFromForm();
+  const validationError = validatePaymentConfig(nextConfig);
+  if (validationError) throw new Error(validationError);
+
+  const savedConfig = await runPaymentConfigOperation(
+    (bookingApi) => bookingApi.updatePaymentConfig(nextConfig),
+    () => nextConfig,
+  );
+  paymentConfig = savedConfig;
+  localStorage.setItem(storageKeys.paymentConfig, JSON.stringify(paymentConfig));
+  renderPaymentConfigForm();
   renderPaymentSummary();
   $("#paymentConfigStatus").textContent = "Configuracion de cobro guardada.";
+  $("#paymentConfigStatus").classList.remove("error-status");
+  $("#paymentConfigStatus").hidden = false;
 }
 
 function setInlineStatus(selector, message, isError = false) {
@@ -1741,8 +1826,14 @@ function bindEvents() {
 
   $("#paymentConfigForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    savePaymentConfig();
+    savePaymentConfig().catch((error) => {
+      $("#paymentConfigStatus").textContent = error.message;
+      $("#paymentConfigStatus").classList.add("error-status");
+      $("#paymentConfigStatus").hidden = false;
+    });
   });
+
+  $("#paymentDepositEnabled").addEventListener("change", togglePaymentDepositFields);
 
   $("#availabilitySettingsForm").addEventListener("submit", (event) => {
     event.preventDefault();

@@ -302,6 +302,12 @@
           </div>
           <section class="admin-panel">
             <form class="admin-form" id="paymentConfigForm">
+              <label>Solicitar se&ntilde;a
+                <select id="paymentDepositEnabled">
+                  <option value="true">S&iacute;, solicitar se&ntilde;a</option>
+                  <option value="false">No solicitar se&ntilde;a</option>
+                </select>
+              </label>
               <div class="form-row">
                 <label>Tipo de se&ntilde;a
                   <select id="paymentDepositMode">
@@ -312,11 +318,11 @@
                 <label>Monto o porcentaje de se&ntilde;a<input type="number" id="paymentDepositValue" min="0" step="1" placeholder="0" /></label>
               </div>
               <div class="form-row">
-                <label>Alias de Mercado Pago<input type="text" id="paymentAlias" placeholder="laura.dba" required /></label>
-                <label>Nombre del titular<input type="text" id="paymentHolder" placeholder="Laura Paradiso" required /></label>
+                <label>Alias de transferencia<input type="text" id="paymentAlias" placeholder="laura.dba" /></label>
+                <label>Nombre del titular<input type="text" id="paymentHolder" placeholder="Laura Paradiso" /></label>
               </div>
-              <label>CBU opcional<input type="text" id="paymentCbu" placeholder="Opcional" /></label>
-              <label>Mensaje personalizado de pago<textarea id="paymentMessage" rows="3" placeholder="Transfer&iacute; el importe exacto y adjunt&aacute; el comprobante."></textarea></label>
+              <label>CBU / CVU<input type="text" id="paymentCbu" placeholder="Opcional" /></label>
+              <label>Instrucciones de pago<textarea id="paymentMessage" rows="3" placeholder="Transfer&iacute; el importe indicado y detall&aacute; la operaci&oacute;n."></textarea></label>
               <button class="button primary admin-action" type="submit">Guardar cobro</button>
               <p class="admin-status" id="paymentConfigStatus" aria-live="polite"></p>
             </form>

@@ -131,6 +131,18 @@
     };
   }
 
+  function toDbPaymentConfig(config = {}) {
+    return {
+      id: "default",
+      deposit_mode: config.depositMode === "percent" ? "percent" : "amount",
+      deposit_value: Number(config.depositValue || 0),
+      alias: config.alias || "",
+      holder: config.holder || "",
+      cbu: config.cbu || "",
+      message: config.message || "",
+    };
+  }
+
   function toAppAvailability(row = {}) {
     return {
       id: row.id || "default",
@@ -331,6 +343,18 @@
     return toAppPaymentConfig(data || {});
   }
 
+  async function updatePaymentConfig(config) {
+    const supabaseClient = await client();
+    const { data, error } = await supabaseClient
+      .from(PAYMENT_CONFIG_TABLE)
+      .upsert(toDbPaymentConfig(config), { onConflict: "id" })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    return toAppPaymentConfig(data);
+  }
+
   async function createPublicReservation(reservation) {
     const supabaseClient = await client();
     const payloads = [
@@ -458,6 +482,7 @@
       getAvailability,
       listBlockedSlots,
       getPaymentConfig,
+      updatePaymentConfig,
       createPublicReservation,
       updateAvailability,
       createBlockedSlot,

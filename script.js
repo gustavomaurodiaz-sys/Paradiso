@@ -201,6 +201,16 @@ function durationLabel(minutes) {
   return `${hours} h ${rest} min`;
 }
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  }[char]));
+}
+
 function todayKey() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -439,17 +449,23 @@ function depositAmount(total, config = paymentConfig) {
 
 function paymentConfigRows(total) {
   const deposit = depositAmount(total);
+  const paymentFields = [
+    paymentConfig.alias ? `<div><span>Alias</span><strong>${escapeHtml(paymentConfig.alias)}</strong></div>` : "",
+    paymentConfig.holder ? `<div><span>Titular</span><strong>${escapeHtml(paymentConfig.holder)}</strong></div>` : "",
+    paymentConfig.cbu ? `<div><span>CBU / CVU</span><strong>${escapeHtml(paymentConfig.cbu)}</strong></div>` : "",
+  ].filter(Boolean).join("");
+  const depositLabel = deposit > 0 ? money(deposit) : "Sin seña requerida";
+  const message = paymentConfig.message || (deposit > 0 ? defaultPaymentConfig.message : "");
   return `
     <div class="payment-transfer-box">
       <p class="eyebrow">Datos de transferencia</p>
       <div class="payment-data-grid">
-        <div><span>Alias</span><strong>${paymentConfig.alias || "Sin configurar"}</strong></div>
-        <div><span>Titular</span><strong>${paymentConfig.holder || "Sin configurar"}</strong></div>
-        <div><span>Se&ntilde;a a transferir</span><strong>${money(deposit)}</strong></div>
+        ${paymentFields}
+        <div><span>Se&ntilde;a estimada</span><strong>${depositLabel}</strong></div>
         <div><span>Total del servicio</span><strong>${money(total)}</strong></div>
-        ${paymentConfig.cbu ? `<div><span>CBU</span><strong>${paymentConfig.cbu}</strong></div>` : ""}
       </div>
-      <p>${paymentConfig.message || defaultPaymentConfig.message}</p>
+      ${message ? `<p>${escapeHtml(message)}</p>` : ""}
+      <p>El importe final de la se&ntilde;a se confirma al generar la reserva.</p>
     </div>
   `;
 }
