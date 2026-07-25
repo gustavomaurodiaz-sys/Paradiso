@@ -22,6 +22,14 @@ const defaultPaymentConfig = {
   message: "Transferi el importe exacto y adjunta el comprobante para validar tu reserva.",
 };
 
+const defaultAvailability = {
+  openTime: "08:00",
+  closeTime: "19:00",
+  slotStepMinutes: 15,
+  activeDays: [1, 2, 3, 4, 5, 6],
+  businessTimezone: "America/Argentina/Buenos_Aires",
+};
+
 const storageKeys = {
   services: "paradiso_services",
   reservations: "paradiso_reservations",
@@ -56,9 +64,6 @@ const serviceVisuals = [
 
 const allowedProofTypes = ["image/jpeg", "image/png", "application/pdf"];
 const allowedProofExtensions = ["jpg", "jpeg", "png", "pdf"];
-const openMinutes = 8 * 60;
-const closeMinutes = 19 * 60;
-const slotStepMinutes = 15;
 const formatter = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const $ = (selector) => document.querySelector(selector);
 
@@ -70,6 +75,10 @@ let paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
 let selectedServiceIds = [];
 let selectedDate = "";
 let selectedStartTime = "";
+let availabilitySettings = { ...defaultAvailability };
+let blockedSlots = [];
+let bookingUsesLocalFallback = false;
+let reservationSubmitInProgress = false;
 
 function loadList(key, fallback) {
   try {
@@ -94,21 +103,53 @@ function cacheServices(nextServices) {
   localStorage.setItem(storageKeys.services, JSON.stringify(services));
 }
 
-async function refreshServicesFromSupabase() {
-  const serviceApi = window.paradisoSupabase?.services;
-  if (!serviceApi) return;
+function cachePaymentConfig(nextConfig) {
+  paymentConfig = { ...defaultPaymentConfig, ...(nextConfig || {}) };
+  localStorage.setItem(storageKeys.paymentConfig, JSON.stringify(paymentConfig));
+}
+
+function setBookingOfflineMode(enabled) {
+  bookingUsesLocalFallback = Boolean(enabled);
+  const notice = $("#bookingOfflineNotice");
+  if (notice) notice.hidden = !enabled;
+}
+
+function cacheBookingData({ remoteServices, availability, remoteBlockedSlots, remotePaymentConfig }) {
+  if (remoteServices) cacheServices(remoteServices);
+  if (availability) availabilitySettings = { ...defaultAvailability, ...availability };
+  if (remoteBlockedSlots) blockedSlots = remoteBlockedSlots;
+  if (remotePaymentConfig) cachePaymentConfig(remotePaymentConfig);
+}
+
+async function refreshBookingDataFromSupabase() {
+  const api = window.paradisoSupabase;
+  if (!api?.services || !api.booking) {
+    setBookingOfflineMode(true);
+    return false;
+  }
 
   try {
-    const remoteServices = await serviceApi.list({ activeOnly: true });
-    cacheServices(remoteServices);
+    const [remoteServices, availability, remoteBlockedSlots, remotePaymentConfig] = await Promise.all([
+      api.services.list({ activeOnly: true }),
+      api.booking.getAvailability(),
+      api.booking.listBlockedSlots(),
+      api.booking.getPaymentConfig(),
+    ]);
+    cacheBookingData({ remoteServices, availability, remoteBlockedSlots, remotePaymentConfig });
+    setBookingOfflineMode(false);
     selectedServiceIds = selectedServiceIds.filter((id) => services.some((service) => service.id === id && service.active));
     renderServices();
     renderSelection();
     renderSlots();
+    return true;
   } catch (error) {
-    if (!window.paradisoSupabase?.isNetworkError?.(error)) {
+    if (api.isNetworkError?.(error)) {
+      setBookingOfflineMode(true);
+    } else {
+      setBookingOfflineMode(false);
       console.warn("No se pudieron cargar los servicios desde Supabase.", error);
     }
+    return false;
   }
 }
 
@@ -174,6 +215,29 @@ function minutesToTime(minutes) {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
+function businessOpenMinutes() {
+  return timeToMinutes(availabilitySettings.openTime || defaultAvailability.openTime);
+}
+
+function businessCloseMinutes() {
+  return timeToMinutes(availabilitySettings.closeTime || defaultAvailability.closeTime);
+}
+
+function slotStep() {
+  return Number(availabilitySettings.slotStepMinutes || defaultAvailability.slotStepMinutes);
+}
+
+function isoWeekday(dateValue) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const nativeDay = new Date(year, month - 1, day).getDay();
+  return nativeDay === 0 ? 7 : nativeDay;
+}
+
+function isActiveBusinessDay(dateValue) {
+  if (!dateValue) return false;
+  return (availabilitySettings.activeDays || defaultAvailability.activeDays).map(Number).includes(isoWeekday(dateValue));
+}
+
 function dateLabel(dateValue) {
   if (!dateValue) return "Selecciona una fecha";
   const [year, month, day] = dateValue.split("-").map(Number);
@@ -221,6 +285,14 @@ function hasOverlap(dateValue, startMinutes, endMinutes) {
   });
 }
 
+function isBlockedSlot(dateValue, startMinutes, endMinutes) {
+  return blockedSlots.some((slot) => {
+    if (!slot.active || slot.date !== dateValue) return false;
+    if (!slot.startTime || !slot.endTime) return true;
+    return overlaps(startMinutes, endMinutes, timeToMinutes(slot.startTime), timeToMinutes(slot.endTime));
+  });
+}
+
 function isPastSlot(dateValue, startMinutes) {
   if (dateValue !== todayKey()) return false;
   const now = new Date();
@@ -228,11 +300,13 @@ function isPastSlot(dateValue, startMinutes) {
 }
 
 function availableSlots(dateValue, totalMinutes) {
-  if (!dateValue || !totalMinutes || totalMinutes > closeMinutes - openMinutes) return [];
+  const openMinutes = businessOpenMinutes();
+  const closeMinutes = businessCloseMinutes();
+  if (!dateValue || !totalMinutes || !isActiveBusinessDay(dateValue) || totalMinutes > closeMinutes - openMinutes) return [];
   const slots = [];
-  for (let start = openMinutes; start + totalMinutes <= closeMinutes; start += slotStepMinutes) {
+  for (let start = openMinutes; start + totalMinutes <= closeMinutes; start += slotStep()) {
     const end = start + totalMinutes;
-    if (!isPastSlot(dateValue, start) && !hasOverlap(dateValue, start, end)) slots.push(minutesToTime(start));
+    if (!isPastSlot(dateValue, start) && !hasOverlap(dateValue, start, end) && !isBlockedSlot(dateValue, start, end)) slots.push(minutesToTime(start));
   }
   return slots;
 }
@@ -330,7 +404,17 @@ function renderSlots() {
     $("#slotHelp").textContent = "Selecciona una fecha para ver horarios.";
     return;
   }
-  if (totals.minutes > closeMinutes - openMinutes) {
+  if (dateValue < todayKey()) {
+    $("#availableSlots").innerHTML = "";
+    $("#slotHelp").textContent = "No se pueden elegir fechas pasadas.";
+    return;
+  }
+  if (!isActiveBusinessDay(dateValue)) {
+    $("#availableSlots").innerHTML = "";
+    $("#slotHelp").textContent = "Ese dia no esta habilitado para reservas.";
+    return;
+  }
+  if (totals.minutes > businessCloseMinutes() - businessOpenMinutes()) {
     $("#availableSlots").innerHTML = "";
     $("#slotHelp").textContent = "La duracion total supera el horario de atencion.";
     return;
@@ -348,7 +432,7 @@ function renderSlots() {
 
 function depositAmount(total, config = paymentConfig) {
   const value = Number(config.depositValue || 0);
-  if (!value) return total;
+  if (!value) return 0;
   if (config.depositMode === "percent") return Math.round(total * Math.min(value, 100) / 100);
   return Math.min(value, total);
 }
@@ -371,7 +455,6 @@ function paymentConfigRows(total) {
 }
 
 function renderCheckoutReview() {
-  paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
   const totals = selectedTotals();
   const endTime = minutesToTime(timeToMinutes(selectedStartTime) + totals.minutes);
   $("#checkoutReview").innerHTML = `
@@ -383,12 +466,13 @@ function renderCheckoutReview() {
     </aside>
     <div class="reservation-services checkout-services">${selectedServices().map((service) => `<span>${service.name}</span>`).join("")}</div>
     <p class="slot-empty">Fecha elegida: ${dateLabel(selectedDate)}.</p>
+    <p class="slot-empty">Total, duracion y se&ntilde;a son una vista previa. Supabase vuelve a validar disponibilidad, precios y bloqueo al confirmar.</p>
     ${paymentConfigRows(totals.price)}
   `;
 }
 
 function validateProof(file) {
-  if (!file) return "Adjunta el comprobante de transferencia.";
+  if (!file || !file.name || !file.size) return "";
   const extension = file.name.split(".").pop().toLowerCase();
   if (!allowedProofTypes.includes(file.type) && !allowedProofExtensions.includes(extension)) {
     return "El comprobante debe ser JPG, JPEG, PNG o PDF.";
@@ -424,12 +508,43 @@ function queueReservationEmails(reservation) {
   });
 }
 
-async function createReservation(formData) {
+function reservationErrorMessage(error) {
+  const message = String(error?.message || error || "");
+  const lower = message.toLowerCase();
+  if (lower.includes("overlap") || lower.includes("ocup") || lower.includes("conflict") || lower.includes("superpos")) {
+    return "Ese horario ya fue ocupado. Elegi otro turno disponible.";
+  }
+  if (lower.includes("blocked") || lower.includes("bloque")) {
+    return "Ese horario fue bloqueado por administracion. Elegi otro turno disponible.";
+  }
+  if (lower.includes("permission") || lower.includes("permis") || lower.includes("rls") || lower.includes("unauthorized")) {
+    return "Supabase rechazo la operacion por permisos. Revisar la configuracion de acceso.";
+  }
+  if (lower.includes("service") || lower.includes("servicio")) {
+    return "Uno de los servicios seleccionados ya no esta disponible. Actualiza la pagina y volve a elegir.";
+  }
+  return message || "No se pudo generar la reserva. Intentá nuevamente.";
+}
+
+function reservationPayloadFromForm(formData) {
+  return {
+    clientName: String(formData.get("clientName") || "").trim(),
+    clientPhone: String(formData.get("clientPhone") || "").trim(),
+    clientEmail: String(formData.get("clientEmail") || "").trim(),
+    date: selectedDate,
+    startTime: selectedStartTime,
+    serviceIds: selectedServices().map((service) => service.id),
+    comment: String(formData.get("clientComment") || "").trim(),
+    paymentNotes: String(formData.get("paymentNotes") || "").trim(),
+  };
+}
+
+async function createLocalReservation(formData) {
   const proofFile = formData.get("paymentProof");
   const proofError = validateProof(proofFile);
   if (proofError) throw new Error(proofError);
 
-  const paymentProof = await readProofFile(proofFile);
+  const paymentProof = proofFile?.size ? await readProofFile(proofFile) : null;
   const totals = selectedTotals();
   const startMinutes = timeToMinutes(selectedStartTime);
   const endTime = minutesToTime(startMinutes + totals.minutes);
@@ -465,6 +580,38 @@ async function createReservation(formData) {
   queueReservationEmails(reservation);
   saveReservationState();
   return reservation;
+}
+
+async function createReservation(formData) {
+  const payload = reservationPayloadFromForm(formData);
+  if (!payload.clientName || !payload.clientPhone || !payload.clientEmail || !payload.date || !payload.startTime || !payload.serviceIds.length) {
+    throw new Error("Completá tus datos, servicios, fecha y horario antes de confirmar.");
+  }
+
+  const api = window.paradisoSupabase;
+  if (!api?.booking) {
+    setBookingOfflineMode(true);
+    return createLocalReservation(formData);
+  }
+
+  try {
+    const reference = await api.booking.createPublicReservation(payload);
+    setBookingOfflineMode(false);
+    return {
+      reference,
+      client: { name: payload.clientName, phone: payload.clientPhone, email: payload.clientEmail },
+      date: payload.date,
+      startTime: payload.startTime,
+      bookingStatus: "pending_validation",
+    };
+  } catch (error) {
+    if (api.isNetworkError?.(error)) {
+      setBookingOfflineMode(true);
+      return createLocalReservation(formData);
+    }
+    setBookingOfflineMode(false);
+    throw new Error(reservationErrorMessage(error));
+  }
 }
 
 function resetFlow() {
@@ -503,8 +650,9 @@ function bindEvents() {
     showStep("reserva-guiada");
   });
 
-  $("#continueToSchedule").addEventListener("click", () => {
+  $("#continueToSchedule").addEventListener("click", async () => {
     if (!validateServiceSelection("#selectionError")) return;
+    await refreshBookingDataFromSupabase();
     $("#selectionError").textContent = "";
     $("#appointmentDate").value = $("#appointmentDate").value || todayKey();
     renderSlots();
@@ -523,7 +671,8 @@ function bindEvents() {
     renderSlots();
   });
 
-  $("#continueToCheckout").addEventListener("click", () => {
+  $("#continueToCheckout").addEventListener("click", async () => {
+    await refreshBookingDataFromSupabase();
     if (!selectedStartTime) {
       $("#slotHelp").textContent = "Selecciona un horario disponible para continuar.";
       return;
@@ -534,21 +683,36 @@ function bindEvents() {
 
   $("#reservationForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (reservationSubmitInProgress) return;
     const totals = selectedTotals();
-    if (!selectedDate || !selectedStartTime || hasOverlap(selectedDate, timeToMinutes(selectedStartTime), timeToMinutes(selectedStartTime) + totals.minutes)) {
+    const startMinutes = selectedStartTime ? timeToMinutes(selectedStartTime) : 0;
+    const endMinutes = startMinutes + totals.minutes;
+    if (!selectedDate || !selectedStartTime || !isActiveBusinessDay(selectedDate) || isPastSlot(selectedDate, startMinutes) || hasOverlap(selectedDate, startMinutes, endMinutes) || isBlockedSlot(selectedDate, startMinutes, endMinutes)) {
       showStep("fecha-horario");
       renderSlots();
       $("#slotHelp").textContent = "Ese horario ya no esta disponible. Elegi otro turno.";
       return;
     }
+    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    reservationSubmitInProgress = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Generando reserva...";
+    }
     try {
       const reservation = await createReservation(new FormData(event.currentTarget));
-      $("#confirmationText").textContent = `${reservation.client.name}, recibimos tu solicitud para el ${reservation.date} de ${reservation.startTime} a ${reservation.endTime}. Total: ${money(reservation.total)}. Estado: ${statusLabels[reservation.bookingStatus]}.`;
+      $("#confirmationText").textContent = `${reservation.client.name}, recibimos tu solicitud para el ${reservation.date} a las ${reservation.startTime}. Codigo de reserva: ${reservation.reference || "pendiente local"}. Estado: ${statusLabels[reservation.bookingStatus]}.`;
       $("#confirmationDialog").showModal();
       resetFlow();
       showStep("home", false);
     } catch (error) {
       alert(error.message);
+    } finally {
+      reservationSubmitInProgress = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = "Generar reserva";
+      }
     }
   });
 
@@ -601,7 +765,7 @@ renderSlots();
 bindEvents();
 bindHeroParallax();
 showStep(window.location.hash.replace("#", "") || "home", false);
-refreshServicesFromSupabase();
+refreshBookingDataFromSupabase();
 
 window.addEventListener("popstate", () => {
   showStep(window.location.hash.replace("#", "") || "home", false);

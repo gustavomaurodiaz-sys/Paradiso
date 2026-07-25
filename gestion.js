@@ -269,9 +269,18 @@ function saveServicesState() {
   localStorage.setItem(storageKeys.services, JSON.stringify(services));
 }
 
+function saveReservationsState() {
+  localStorage.setItem(storageKeys.reservations, JSON.stringify(reservations));
+}
+
 function cacheServices(nextServices) {
   services = Array.isArray(nextServices) ? nextServices : [];
   saveServicesState();
+}
+
+function cacheReservations(nextReservations) {
+  reservations = normalizeReservations(Array.isArray(nextReservations) ? nextReservations : []);
+  saveReservationsState();
 }
 
 function mergeAdminServices(remoteServices) {
@@ -283,9 +292,12 @@ function mergeAdminServices(remoteServices) {
   });
 }
 
-function setOfflineMode(enabled) {
+function setOfflineMode(enabled, message = "Modo sin conexion: los cambios se guardan solo en este dispositivo.") {
   const notice = $("#offlineModeNotice");
-  if (notice) notice.hidden = !enabled;
+  if (notice) {
+    notice.textContent = message;
+    notice.hidden = !enabled;
+  }
 }
 
 async function refreshServicesFromSupabase(renderAfterLoad = true) {
@@ -333,6 +345,59 @@ async function runServiceOperation(remoteOperation, localFallback) {
     if (api.isNetworkError?.(error)) {
       setOfflineMode(true);
       console.warn("Supabase no respondio. Se usa localStorage temporalmente.", error);
+      return localFallback();
+    }
+    setOfflineMode(false);
+    throw error;
+  }
+}
+
+async function refreshReservationsFromSupabase(renderAfterLoad = true) {
+  const reservationApi = window.paradisoSupabase?.reservations;
+  if (!reservationApi) {
+    setOfflineMode(true, "Modo sin conexion: las reservas se guardan solo en este dispositivo.");
+    return false;
+  }
+
+  try {
+    const remoteReservations = await reservationApi.list();
+    cacheReservations(remoteReservations);
+    setOfflineMode(false);
+    if (renderAfterLoad && isAdminLoggedIn()) {
+      renderNotification();
+      renderReservations();
+      renderFinishedWork();
+      renderCalendar();
+      renderDayAvailability();
+      renderPaymentSummary();
+    }
+    return true;
+  } catch (error) {
+    if (window.paradisoSupabase?.isNetworkError?.(error)) {
+      setOfflineMode(true, "Modo sin conexion: las reservas se guardan solo en este dispositivo.");
+    } else {
+      setOfflineMode(false);
+      console.warn("No se pudieron cargar las reservas desde Supabase.", error);
+    }
+    return false;
+  }
+}
+
+async function runReservationOperation(remoteOperation, localFallback) {
+  const api = window.paradisoSupabase;
+  if (!api?.reservations || !api.isAvailable?.()) {
+    setOfflineMode(true, "Modo sin conexion: las reservas se guardan solo en este dispositivo.");
+    return localFallback();
+  }
+
+  try {
+    const result = await remoteOperation(api.reservations);
+    setOfflineMode(false);
+    return result;
+  } catch (error) {
+    if (api.isNetworkError?.(error)) {
+      setOfflineMode(true, "Modo sin conexion: las reservas se guardan solo en este dispositivo.");
+      console.warn("Supabase no respondio. Se usan reservas locales temporalmente.", error);
       return localFallback();
     }
     setOfflineMode(false);
@@ -523,6 +588,7 @@ function showAdminApp() {
   renderAllAdmin();
   showAdminView(activeAdminView);
   refreshServicesFromSupabase();
+  refreshReservationsFromSupabase();
 }
 
 function renderAllAdmin() {
@@ -613,7 +679,7 @@ function renderPaymentSummary() {
         <strong>${items.length}</strong>
         <div class="payment-mini-list">
           ${items.length ? items.slice(0, 5).map((reservation) => `
-            <small>${escapeHtml(reservation.client?.name || "Cliente")} · ${escapeHtml(reservation.date || "Sin fecha")} · ${money(reservation.depositAmount || reservation.total)}</small>
+            <small>${escapeHtml(reservation.client?.name || "Cliente")} · ${escapeHtml(reservation.date || "Sin fecha")} · ${money(reservation.depositAmount ?? reservation.total)}</small>
           `).join("") : "<small>Sin movimientos</small>"}
         </div>
       </article>
@@ -1058,7 +1124,7 @@ function renderReservations() {
       <div class="reservation-services">${reservation.services.map((service) => `<span>${service.name}</span>`).join("")}</div>
       <div class="reservation-meta">
         <span>Total: ${money(reservation.total)}</span>
-        <span>Se&ntilde;a: ${money(reservation.depositAmount || reservation.total)}</span>
+        <span>Se&ntilde;a: ${money(reservation.depositAmount ?? reservation.total)}</span>
         <span>Tiempo: ${durationLabel(reservation.minutes)}</span>
         <span>Pago: ${paymentLabels[reservation.paymentStatus]}</span>
       </div>
@@ -1086,6 +1152,10 @@ function renderReservations() {
             ${Object.entries(bookingLabels).map(([value, label]) => `<option value="${value}" ${reservation.bookingStatus === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
         </label>
+        <label>
+          Notas de pago
+          <textarea class="payment-notes" rows="2">${escapeHtml(reservation.paymentNotes || "")}</textarea>
+        </label>
         <button class="button primary update-reservation" type="button">Actualizar</button>
         <button class="button secondary light approve-payment" type="button">Aprobar pago</button>
         <button class="button secondary light reject-payment" type="button">Rechazar pago</button>
@@ -1095,52 +1165,64 @@ function renderReservations() {
   `).join("");
 }
 
-function updateReservationFromRow(row, mode = "manual") {
+async function updateReservationFromRow(row, mode = "manual") {
   const reservation = reservations.find((item) => item.id === row.dataset.reservationId);
   if (!reservation) return;
-  const previousStatus = reservation.bookingStatus;
+  let nextPaymentStatus = reservation.paymentStatus;
+  let nextBookingStatus = reservation.bookingStatus;
   if (mode === "approve") {
-    reservation.paymentStatus = "approved";
-    reservation.bookingStatus = "confirmed";
+    nextPaymentStatus = "approved";
+    nextBookingStatus = "confirmed";
   } else if (mode === "reject") {
-    reservation.paymentStatus = "rejected";
-    reservation.bookingStatus = "payment_rejected";
+    nextPaymentStatus = "rejected";
+    nextBookingStatus = "payment_rejected";
   } else if (mode === "release") {
-    reservation.bookingStatus = "cancelled";
+    nextBookingStatus = "cancelled";
   } else {
-    reservation.paymentStatus = row.querySelector(".payment-status").value;
-    reservation.bookingStatus = row.querySelector(".booking-status").value;
-    if (reservation.paymentStatus === "approved" && reservation.bookingStatus === "pending_validation") {
-      reservation.bookingStatus = "confirmed";
+    nextPaymentStatus = row.querySelector(".payment-status").value;
+    nextBookingStatus = row.querySelector(".booking-status").value;
+    if (nextPaymentStatus === "approved" && nextBookingStatus === "pending_validation") {
+      nextBookingStatus = "confirmed";
     }
-    if (reservation.paymentStatus === "rejected") {
-      reservation.bookingStatus = "payment_rejected";
+    if (nextPaymentStatus === "rejected") {
+      nextBookingStatus = "payment_rejected";
     }
-    if (reservation.bookingStatus === "confirmed" && reservation.paymentStatus === "pending_validation") {
-      reservation.paymentStatus = "approved";
+    if (nextBookingStatus === "confirmed" && nextPaymentStatus === "pending_validation") {
+      nextPaymentStatus = "approved";
     }
-    if (reservation.bookingStatus === "payment_rejected") {
-      reservation.paymentStatus = "rejected";
+    if (nextBookingStatus === "payment_rejected") {
+      nextPaymentStatus = "rejected";
     }
   }
-  reservation.status = reservation.bookingStatus;
-  reservation.seenByAdmin = true;
-  reservation.updatedAt = new Date().toISOString();
-  const notification = registerClientNotification(reservation, previousStatus);
-  saveState();
+
+  const localUpdatedReservation = {
+    ...reservation,
+    paymentStatus: nextPaymentStatus,
+    bookingStatus: nextBookingStatus,
+    status: nextBookingStatus,
+    seenByAdmin: true,
+    paymentNotes: row.querySelector(".payment-notes")?.value.trim() || "",
+    updatedAt: new Date().toISOString(),
+  };
+  const savedReservation = await runReservationOperation(
+    (reservationApi) => reservationApi.update(reservation.id, {
+      paymentStatus: localUpdatedReservation.paymentStatus,
+      bookingStatus: localUpdatedReservation.bookingStatus,
+      seenByAdmin: true,
+      paymentNotes: localUpdatedReservation.paymentNotes,
+    }),
+    () => localUpdatedReservation,
+  );
+
+  reservations = reservations.map((item) => (item.id === reservation.id ? savedReservation : item));
+  saveReservationsState();
   renderNotification();
   renderReservations();
   renderFinishedWork();
   renderCalendar();
   renderDayAvailability();
   renderPaymentSummary();
-  if (notification?.success) {
-    showAdminNotice(`Notificacion preparada para ${reservation.client.name} por ${notification.channel}.`);
-  } else if (notification) {
-    showAdminNotice(`No se pudo enviar la notificacion a ${reservation.client.name}: ${notification.error}`, true);
-  } else {
-    showAdminNotice("Reserva actualizada. No se envio notificacion porque el estado no cambio.");
-  }
+  showAdminNotice("Reserva actualizada.");
 }
 
 function renderCalendar() {
@@ -1310,9 +1392,20 @@ function bindEvents() {
     button.addEventListener("click", () => showAdminView(button.dataset.adminView));
   });
 
-  $("#markReservationsSeen").addEventListener("click", () => {
-    reservations = reservations.map((reservation) => ({ ...reservation, seenByAdmin: true }));
-    saveState();
+  $("#markReservationsSeen").addEventListener("click", async () => {
+    const unseenIds = reservations.filter((reservation) => !reservation.seenByAdmin).map((reservation) => reservation.id);
+    await runReservationOperation(
+      (reservationApi) => reservationApi.markSeen(unseenIds),
+      () => reservations.map((reservation) => ({ ...reservation, seenByAdmin: true })),
+    ).then((updatedReservations) => {
+      if (updatedReservations?.length) {
+        const updatedById = new Map(updatedReservations.map((reservation) => [reservation.id, reservation]));
+        reservations = reservations.map((reservation) => updatedById.get(reservation.id) || reservation);
+      } else {
+        reservations = reservations.map((reservation) => ({ ...reservation, seenByAdmin: true }));
+      }
+    }).catch((error) => showAdminNotice(error.message, true));
+    saveReservationsState();
     renderNotification();
     renderReservations();
   });
@@ -1369,10 +1462,10 @@ function bindEvents() {
   $("#reservationRows").addEventListener("click", (event) => {
     const row = event.target.closest(".reservation-row");
     if (!row) return;
-    if (event.target.closest(".update-reservation")) updateReservationFromRow(row);
-    if (event.target.closest(".approve-payment")) updateReservationFromRow(row, "approve");
-    if (event.target.closest(".reject-payment")) updateReservationFromRow(row, "reject");
-    if (event.target.closest(".release-reservation")) updateReservationFromRow(row, "release");
+    if (event.target.closest(".update-reservation")) updateReservationFromRow(row).catch((error) => showAdminNotice(error.message, true));
+    if (event.target.closest(".approve-payment")) updateReservationFromRow(row, "approve").catch((error) => showAdminNotice(error.message, true));
+    if (event.target.closest(".reject-payment")) updateReservationFromRow(row, "reject").catch((error) => showAdminNotice(error.message, true));
+    if (event.target.closest(".release-reservation")) updateReservationFromRow(row, "release").catch((error) => showAdminNotice(error.message, true));
   });
 
   $("#finishedWorkRows").addEventListener("click", (event) => {

@@ -27,6 +27,9 @@
         <a id="headerWhatsappLink" href="https://wa.me/5490000000000" target="_blank" rel="noreferrer">WhatsApp</a>
       </nav>
     </header>
+    <div class="offline-mode-banner" id="bookingOfflineNotice" role="status" hidden>
+      Modo sin conexi&oacute;n: las reservas se guardan s&oacute;lo en este dispositivo.
+    </div>
 
     <main class="booking-flow">
       <section class="hero flow-step" id="home" aria-labelledby="hero-title">
@@ -158,7 +161,7 @@
           <p class="eyebrow">Selecci&oacute;n de fecha y horario</p>
           <h2 id="schedule-title">Eleg&iacute; un turno disponible</h2>
           <p>
-            Los horarios se calculan entre 08:00 y 19:00 y se ajustan al tiempo total de los servicios elegidos.
+            Los horarios se calculan con la disponibilidad configurada y se ajustan al tiempo total de los servicios elegidos.
           </p>
         </div>
 
@@ -208,7 +211,7 @@
             <p class="eyebrow">Confirmaci&oacute;n y pago</p>
             <h2 id="checkout-title">Revis&aacute; el turno y carg&aacute; tus datos</h2>
             <p>
-              La reserva queda pendiente hasta que revisemos el comprobante. Al generar la solicitud, el horario queda bloqueado.
+              La reserva queda pendiente de validaci&oacute;n. Al generar la solicitud, Supabase confirma precios, duraci&oacute;n y disponibilidad.
             </p>
           </div>
           <div class="checkout-panel">
@@ -236,10 +239,10 @@
                 </label>
               </fieldset>
               <fieldset>
-                <legend>Comprobante de transferencia</legend>
+                <legend>Datos de pago</legend>
                 <label>
-                  Adjuntar comprobante
-                  <input type="file" name="paymentProof" id="paymentProof" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required />
+                  Adjuntar comprobante opcional
+                  <input type="file" name="paymentProof" id="paymentProof" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" />
                 </label>
                 <label>
                   Observaciones de pago
@@ -248,11 +251,11 @@
               </fieldset>
               <div class="form-row flow-actions">
                 <button class="button secondary light" type="button" data-step-target="fecha-horario">Cambiar horario</button>
-                <button class="pay-button" type="submit">Generar reserva y enviar comprobante</button>
+                <button class="pay-button" type="submit">Generar reserva</button>
               </div>
               <div class="policy-box">
-                <p>La reserva queda pendiente de validaci&oacute;n de pago hasta que revisemos el comprobante.</p>
-                <p>Cuando se genere la reserva, el horario quedar&aacute; bloqueado.</p>
+                <p>La reserva queda pendiente de validaci&oacute;n de pago.</p>
+                <p>Cuando Supabase confirme la solicitud, el horario quedar&aacute; bloqueado.</p>
               </div>
             </form>
           </div>
