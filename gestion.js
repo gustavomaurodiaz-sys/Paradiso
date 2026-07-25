@@ -265,6 +265,81 @@ function saveState() {
   localStorage.setItem(storageKeys.outbox, JSON.stringify(emailOutbox));
 }
 
+function saveServicesState() {
+  localStorage.setItem(storageKeys.services, JSON.stringify(services));
+}
+
+function cacheServices(nextServices) {
+  services = Array.isArray(nextServices) ? nextServices : [];
+  saveServicesState();
+}
+
+function mergeAdminServices(remoteServices) {
+  const remoteIds = new Set(remoteServices.map((service) => service.id));
+  const localInactiveServices = services.filter((service) => service && service.active === false && !remoteIds.has(service.id));
+  return [...remoteServices, ...localInactiveServices].sort((a, b) => {
+    const order = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+    return order || String(a.name || "").localeCompare(String(b.name || ""));
+  });
+}
+
+function setOfflineMode(enabled) {
+  const notice = $("#offlineModeNotice");
+  if (notice) notice.hidden = !enabled;
+}
+
+async function refreshServicesFromSupabase(renderAfterLoad = true) {
+  const serviceApi = window.paradisoSupabase?.services;
+  if (!serviceApi) {
+    setOfflineMode(true);
+    return false;
+  }
+
+  try {
+    const remoteServices = await serviceApi.list();
+    setOfflineMode(false);
+    cacheServices(mergeAdminServices(remoteServices));
+    if (renderAfterLoad && isAdminLoggedIn()) {
+      renderAdminServices();
+      renderReservations();
+      renderFinishedWork();
+      renderCalendar();
+      renderDayAvailability();
+    }
+    return true;
+  } catch (error) {
+    if (window.paradisoSupabase?.isNetworkError?.(error)) {
+      setOfflineMode(true);
+    } else {
+      setOfflineMode(false);
+      console.warn("No se pudieron cargar los servicios desde Supabase.", error);
+    }
+    return false;
+  }
+}
+
+async function runServiceOperation(remoteOperation, localFallback) {
+  const api = window.paradisoSupabase;
+  if (!api?.services || !api.isAvailable?.()) {
+    setOfflineMode(true);
+    return localFallback();
+  }
+
+  try {
+    const result = await remoteOperation(api.services);
+    setOfflineMode(false);
+    return result;
+  } catch (error) {
+    if (api.isNetworkError?.(error)) {
+      setOfflineMode(true);
+      console.warn("Supabase no respondio. Se usa localStorage temporalmente.", error);
+      return localFallback();
+    }
+    setOfflineMode(false);
+    throw error;
+  }
+}
+
 function money(value) {
   return formatter.format(value || 0).replace(/\s/g, "");
 }
@@ -447,6 +522,7 @@ function showAdminApp() {
   $("#adminApp").hidden = false;
   renderAllAdmin();
   showAdminView(activeAdminView);
+  refreshServicesFromSupabase();
 }
 
 function renderAllAdmin() {
@@ -597,46 +673,75 @@ async function createServiceFromForm() {
   if (!name || !price || !minutes || !description) return;
   const image = await imageValueFromControls($("#newServiceImageUrl"), $("#newServiceImageFile"));
   const idBase = slug(name) || `servicio-${Date.now()}`;
-  const id = services.some((service) => service.id === idBase) ? `${idBase}-${Date.now()}` : idBase;
-  services.push({ id, name, price, minutes, description, image, active: true, icon: makeIcon(name) });
+  const id = services.some((service) => service.id === idBase || service.slug === idBase) ? `${idBase}-${Date.now()}` : idBase;
+  const localService = { id, slug: id, name, price, minutes, description, image, active: true, icon: makeIcon(name), sortOrder: services.length };
+  const savedService = await runServiceOperation(
+    (serviceApi) => serviceApi.create(localService, services.length),
+    () => localService,
+  );
+  services.push(savedService);
   $("#adminServiceForm").reset();
   $("#newServiceImagePreview").innerHTML = "<span>Sin foto personalizada</span>";
-  saveState();
+  saveServicesState();
   renderAdminServices();
 }
 
 async function updateService(row) {
   const service = services.find((item) => item.id === row.dataset.serviceId);
   if (!service) return;
-  service.name = row.querySelector('[data-field="name"]').value.trim();
-  service.price = Number(row.querySelector('[data-field="price"]').value);
-  service.minutes = Number(row.querySelector('[data-field="minutes"]').value);
-  service.description = row.querySelector('[data-field="description"]').value.trim();
-  service.image = await imageValueFromControls(row.querySelector('[data-field="image"]'), row.querySelector('[data-field="imageFile"]'));
-  service.icon = makeIcon(service.name);
-  saveState();
+  const nextService = {
+    ...service,
+    name: row.querySelector('[data-field="name"]').value.trim(),
+    price: Number(row.querySelector('[data-field="price"]').value),
+    minutes: Number(row.querySelector('[data-field="minutes"]').value),
+    description: row.querySelector('[data-field="description"]').value.trim(),
+    image: await imageValueFromControls(row.querySelector('[data-field="image"]'), row.querySelector('[data-field="imageFile"]')),
+  };
+  nextService.icon = makeIcon(nextService.name);
+  nextService.slug = nextService.slug || slug(nextService.name) || nextService.id;
+
+  const savedService = await runServiceOperation(
+    (serviceApi) => serviceApi.update(service.id, nextService),
+    () => nextService,
+  );
+  services = services.map((item) => (item.id === service.id ? savedService : item));
+  saveServicesState();
   renderAdminServices();
 }
 
-function clearServiceImage(serviceId) {
+async function clearServiceImage(serviceId) {
   const service = services.find((item) => item.id === serviceId);
   if (!service) return;
-  delete service.image;
-  saveState();
+  const nextService = { ...service, image: "" };
+  const savedService = await runServiceOperation(
+    (serviceApi) => serviceApi.update(service.id, nextService),
+    () => nextService,
+  );
+  services = services.map((item) => (item.id === service.id ? savedService : item));
+  saveServicesState();
   renderAdminServices();
 }
 
-function toggleService(serviceId) {
+async function toggleService(serviceId) {
   const service = services.find((item) => item.id === serviceId);
   if (!service) return;
-  service.active = !service.active;
-  saveState();
+  const nextService = { ...service, active: !service.active };
+  const savedService = await runServiceOperation(
+    (serviceApi) => serviceApi.update(service.id, nextService),
+    () => nextService,
+  );
+  services = services.map((item) => (item.id === service.id ? savedService : item));
+  saveServicesState();
   renderAdminServices();
 }
 
-function deleteService(serviceId) {
+async function deleteService(serviceId) {
+  await runServiceOperation(
+    (serviceApi) => serviceApi.delete(serviceId),
+    () => undefined,
+  );
   services = services.filter((service) => service.id !== serviceId);
-  saveState();
+  saveServicesState();
   renderAdminServices();
 }
 
@@ -1150,10 +1255,30 @@ async function testSmtpConfig() {
 }
 
 function bindEvents() {
-  $("#loginForm").addEventListener("submit", (event) => {
+  $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const user = $("#adminUser").value.trim();
     const password = $("#adminPassword").value;
+
+    try {
+      if (window.paradisoSupabase?.auth && window.paradisoSupabase.isAvailable?.()) {
+        const { error } = await window.paradisoSupabase.auth.signIn(user, password);
+        if (error) throw error;
+        sessionStorage.setItem(storageKeys.adminSession, "active");
+        $("#loginStatus").textContent = "";
+        showAdminApp();
+        return;
+      }
+    } catch (error) {
+      if (!window.paradisoSupabase?.isNetworkError?.(error)) {
+        setOfflineMode(false);
+        $("#loginStatus").textContent = "No se pudo iniciar sesion en Supabase. Revisar email, contrasena o permisos.";
+        return;
+      }
+      setOfflineMode(true);
+      console.warn("Supabase no respondio. Se usa el acceso local temporalmente.", error);
+    }
+
     if (user === adminCredentials.user && password === adminCredentials.password) {
       sessionStorage.setItem(storageKeys.adminSession, "active");
       showAdminApp();
@@ -1162,7 +1287,12 @@ function bindEvents() {
     }
   });
 
-  $("#logoutButton").addEventListener("click", () => {
+  $("#logoutButton").addEventListener("click", async () => {
+    try {
+      await window.paradisoSupabase?.auth?.signOut?.();
+    } catch (error) {
+      console.warn("No se pudo cerrar la sesion de Supabase.", error);
+    }
     sessionStorage.removeItem(storageKeys.adminSession);
     window.location.reload();
   });
@@ -1217,9 +1347,9 @@ function bindEvents() {
     const row = event.target.closest(".admin-row");
     if (!row) return;
     if (event.target.closest(".save-service")) updateService(row).catch((error) => alert(error.message));
-    if (event.target.closest(".clear-service-image")) clearServiceImage(row.dataset.serviceId);
-    if (event.target.closest(".toggle-service")) toggleService(row.dataset.serviceId);
-    if (event.target.closest(".delete-service")) deleteService(row.dataset.serviceId);
+    if (event.target.closest(".clear-service-image")) clearServiceImage(row.dataset.serviceId).catch((error) => alert(error.message));
+    if (event.target.closest(".toggle-service")) toggleService(row.dataset.serviceId).catch((error) => alert(error.message));
+    if (event.target.closest(".delete-service")) deleteService(row.dataset.serviceId).catch((error) => alert(error.message));
   });
 
   $("#adminServiceRows").addEventListener("input", (event) => {
@@ -1292,6 +1422,33 @@ window.addEventListener("storage", (event) => {
   if (isAdminLoggedIn()) renderAllAdmin();
 });
 
-bindEvents();
-if (isAdminLoggedIn()) showAdminApp();
+async function initAdmin() {
+  bindEvents();
+
+  try {
+    const session = await window.paradisoSupabase?.auth?.getSession?.();
+    if (session) {
+      setOfflineMode(false);
+      sessionStorage.setItem(storageKeys.adminSession, "active");
+      showAdminApp();
+      return;
+    }
+
+    if (!window.paradisoSupabase?.auth) {
+      setOfflineMode(true);
+      if (isAdminLoggedIn()) showAdminApp();
+    }
+  } catch (error) {
+    if (window.paradisoSupabase?.isNetworkError?.(error)) {
+      setOfflineMode(true);
+      if (isAdminLoggedIn()) showAdminApp();
+      return;
+    }
+    sessionStorage.removeItem(storageKeys.adminSession);
+    setOfflineMode(false);
+    console.warn("No se pudo restaurar la sesion de Supabase.", error);
+  }
+}
+
+initAdmin();
 

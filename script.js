@@ -89,6 +89,29 @@ function loadObject(key, fallback) {
   }
 }
 
+function cacheServices(nextServices) {
+  services = Array.isArray(nextServices) ? nextServices : [];
+  localStorage.setItem(storageKeys.services, JSON.stringify(services));
+}
+
+async function refreshServicesFromSupabase() {
+  const serviceApi = window.paradisoSupabase?.services;
+  if (!serviceApi) return;
+
+  try {
+    const remoteServices = await serviceApi.list({ activeOnly: true });
+    cacheServices(remoteServices);
+    selectedServiceIds = selectedServiceIds.filter((id) => services.some((service) => service.id === id && service.active));
+    renderServices();
+    renderSelection();
+    renderSlots();
+  } catch (error) {
+    if (!window.paradisoSupabase?.isNetworkError?.(error)) {
+      console.warn("No se pudieron cargar los servicios desde Supabase.", error);
+    }
+  }
+}
+
 function showStep(stepId, updateHash = true) {
   const targetStep = flowStepIds.includes(stepId) ? stepId : "home";
   flowStepIds.forEach((id) => {
@@ -578,6 +601,7 @@ renderSlots();
 bindEvents();
 bindHeroParallax();
 showStep(window.location.hash.replace("#", "") || "home", false);
+refreshServicesFromSupabase();
 
 window.addEventListener("popstate", () => {
   showStep(window.location.hash.replace("#", "") || "home", false);
