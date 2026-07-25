@@ -90,6 +90,27 @@
     };
   }
 
+  function toDbAvailability(settings = {}) {
+    return {
+      id: settings.id || "default",
+      open_time: settings.openTime,
+      close_time: settings.closeTime,
+      slot_step_minutes: Number(settings.slotStepMinutes || 15),
+      active_days: (settings.activeDays || []).map(Number),
+      business_timezone: settings.businessTimezone || "America/Argentina/Buenos_Aires",
+    };
+  }
+
+  function toDbBlockedSlot(slot = {}) {
+    return {
+      date: slot.date,
+      start_time: slot.fullDay ? null : slot.startTime || null,
+      end_time: slot.fullDay ? null : slot.endTime || null,
+      reason: slot.reason || "",
+      active: slot.active !== false,
+    };
+  }
+
   function plainTime(value) {
     return String(value || "").slice(0, 5);
   }
@@ -244,15 +265,58 @@
     return toAppAvailability(data || {});
   }
 
-  async function listBlockedSlots() {
+  async function listBlockedSlots({ activeOnly = true } = {}) {
     const supabaseClient = await client();
-    const { data, error } = await supabaseClient
+    let query = supabaseClient
       .from(BLOCKED_SLOTS_TABLE)
       .select("*")
-      .eq("active", true);
+      .order("date", { ascending: true })
+      .order("start_time", { ascending: true, nullsFirst: true });
+
+    if (activeOnly) query = query.eq("active", true);
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return (data || []).map(toAppBlockedSlot);
+  }
+
+  async function updateAvailability(settings) {
+    const supabaseClient = await client();
+    const payload = toDbAvailability(settings);
+    const { data, error } = await supabaseClient
+      .from(AVAILABILITY_TABLE)
+      .upsert(payload, { onConflict: "id" })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    return toAppAvailability(data);
+  }
+
+  async function createBlockedSlot(slot) {
+    const supabaseClient = await client();
+    const { data, error } = await supabaseClient
+      .from(BLOCKED_SLOTS_TABLE)
+      .insert(toDbBlockedSlot(slot))
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    return toAppBlockedSlot(data);
+  }
+
+  async function updateBlockedSlot(id, slot) {
+    const supabaseClient = await client();
+    const { data, error } = await supabaseClient
+      .from(BLOCKED_SLOTS_TABLE)
+      .update(toDbBlockedSlot(slot))
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    return toAppBlockedSlot(data);
   }
 
   async function getPaymentConfig() {
@@ -395,6 +459,9 @@
       listBlockedSlots,
       getPaymentConfig,
       createPublicReservation,
+      updateAvailability,
+      createBlockedSlot,
+      updateBlockedSlot,
     },
     reservations: {
       list: listReservations,

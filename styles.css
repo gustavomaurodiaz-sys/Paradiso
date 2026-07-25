@@ -3369,3 +3369,30 @@ body[data-page="admin"] .admin-section:nth-of-type(odd) {
   font-weight: 900;
   text-align: center;
 }
+
+.availability-day-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.availability-day-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(111, 79, 58, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  font-weight: 800;
+}
+
+.availability-day-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #c34880;
+}
+
+.blocked-slot-list {
+  margin-top: 16px;
+}

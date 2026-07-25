@@ -163,6 +163,65 @@
             <button class="button secondary light" type="button" data-admin-view="menu">Volver al men&uacute; principal</button>
           </div>
 
+          <section class="admin-panel availability-settings-panel" aria-labelledby="availability-settings-title">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Disponibilidad general</p>
+                <h3 id="availability-settings-title">D&iacute;as y horarios de atenci&oacute;n</h3>
+              </div>
+            </div>
+            <form class="admin-form" id="availabilitySettingsForm">
+              <fieldset>
+                <legend>D&iacute;as activos</legend>
+                <div class="availability-day-grid" id="availabilityDayFields"></div>
+              </fieldset>
+              <div class="form-row">
+                <label>Hora de apertura<input type="time" id="availabilityOpenTime" required /></label>
+                <label>Hora de cierre<input type="time" id="availabilityCloseTime" required /></label>
+                <label>Intervalo entre turnos<input type="number" id="availabilitySlotStep" min="5" step="5" required /></label>
+              </div>
+              <button class="button primary admin-action" type="submit">Guardar disponibilidad</button>
+              <p class="admin-status" id="availabilityStatus" hidden aria-live="polite"></p>
+            </form>
+          </section>
+
+          <section class="admin-panel blocked-slots-panel" aria-labelledby="blocked-slots-title">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Bloqueos</p>
+                <h3 id="blocked-slots-title">Bloquear fechas u horarios</h3>
+              </div>
+            </div>
+            <form class="admin-form" id="blockedSlotForm">
+              <div class="form-row">
+                <label>Fecha<input type="date" id="blockedSlotDate" required /></label>
+                <label>Tipo
+                  <select id="blockedSlotMode">
+                    <option value="full-day">Fecha completa</option>
+                    <option value="range">Rango horario</option>
+                  </select>
+                </label>
+                <label>Activo
+                  <select id="blockedSlotActive">
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row" id="blockedSlotTimeFields" hidden>
+                <label>Desde<input type="time" id="blockedSlotStartTime" /></label>
+                <label>Hasta<input type="time" id="blockedSlotEndTime" /></label>
+              </div>
+              <label>Motivo opcional<textarea id="blockedSlotReason" rows="2" placeholder="Ej: capacitaci&oacute;n, feriado, mantenimiento"></textarea></label>
+              <div class="form-row flow-actions">
+                <button class="button primary admin-action" type="submit">Guardar bloqueo</button>
+                <button class="button secondary light" id="cancelBlockedSlotEdit" type="button" hidden>Cancelar edici&oacute;n</button>
+              </div>
+              <p class="admin-status" id="blockedSlotStatus" hidden aria-live="polite"></p>
+            </form>
+            <div class="admin-list blocked-slot-list" id="blockedSlotRows"></div>
+          </section>
+
           <section class="admin-panel calendar-admin-panel" aria-labelledby="calendar-admin-title">
             <div class="panel-heading">
               <div>

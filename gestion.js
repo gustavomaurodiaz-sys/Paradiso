@@ -22,6 +22,25 @@ const defaultPaymentConfig = {
   message: "Transferi el importe exacto y adjunta el comprobante para validar tu reserva.",
 };
 
+const defaultAvailabilitySettings = {
+  id: "default",
+  openTime: "08:00",
+  closeTime: "19:00",
+  slotStepMinutes: 15,
+  activeDays: [1, 2, 3, 4, 5, 6],
+  businessTimezone: "America/Argentina/Buenos_Aires",
+};
+
+const weekDays = [
+  { value: 1, label: "Lunes" },
+  { value: 2, label: "Martes" },
+  { value: 3, label: "Miercoles" },
+  { value: 4, label: "Jueves" },
+  { value: 5, label: "Viernes" },
+  { value: 6, label: "Sabado" },
+  { value: 7, label: "Domingo" },
+];
+
 const paymentLabels = {
   pending_validation: "Pendiente de validacion de pago",
   approved: "Pago aprobado",
@@ -160,6 +179,8 @@ const storageKeys = {
   smtp: "paradiso_smtp_config",
   outbox: "paradiso_email_outbox",
   paymentConfig: "paradiso_payment_config",
+  availabilitySettings: "paradiso_availability_settings",
+  blockedSlots: "paradiso_blocked_slots",
   notificationTemplates: "paradiso_notification_templates",
   adminSession: "paradiso_admin_session",
 };
@@ -180,12 +201,15 @@ let services = loadList(storageKeys.services, defaultServices);
 let reservations = normalizeReservations(loadList(storageKeys.reservations, []));
 let smtpConfig = loadObject(storageKeys.smtp, {});
 let paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
+let availabilitySettings = loadObject(storageKeys.availabilitySettings, defaultAvailabilitySettings);
+let blockedSlots = loadList(storageKeys.blockedSlots, []);
 let notificationTemplates = loadNotificationTemplates();
 let emailOutbox = loadList(storageKeys.outbox, []);
 let activeReservationFilter = "all";
 let visibleMonth = new Date();
 let selectedCalendarDate = todayKey();
 let activeAdminView = "menu";
+let editingBlockedSlotId = "";
 const aftercareSendInProgress = new Set();
 visibleMonth.setDate(1);
 
@@ -252,6 +276,8 @@ function refreshStateFromStorage() {
   reservations = normalizeReservations(loadList(storageKeys.reservations, []));
   smtpConfig = loadObject(storageKeys.smtp, {});
   paymentConfig = loadObject(storageKeys.paymentConfig, defaultPaymentConfig);
+  availabilitySettings = loadObject(storageKeys.availabilitySettings, defaultAvailabilitySettings);
+  blockedSlots = loadList(storageKeys.blockedSlots, []);
   notificationTemplates = loadNotificationTemplates();
   emailOutbox = loadList(storageKeys.outbox, []);
 }
@@ -261,6 +287,8 @@ function saveState() {
   localStorage.setItem(storageKeys.reservations, JSON.stringify(reservations));
   localStorage.setItem(storageKeys.smtp, JSON.stringify(smtpConfig));
   localStorage.setItem(storageKeys.paymentConfig, JSON.stringify(paymentConfig));
+  localStorage.setItem(storageKeys.availabilitySettings, JSON.stringify(availabilitySettings));
+  localStorage.setItem(storageKeys.blockedSlots, JSON.stringify(blockedSlots));
   localStorage.setItem(storageKeys.notificationTemplates, JSON.stringify(notificationTemplates));
   localStorage.setItem(storageKeys.outbox, JSON.stringify(emailOutbox));
 }
@@ -273,6 +301,11 @@ function saveReservationsState() {
   localStorage.setItem(storageKeys.reservations, JSON.stringify(reservations));
 }
 
+function saveAvailabilityState() {
+  localStorage.setItem(storageKeys.availabilitySettings, JSON.stringify(availabilitySettings));
+  localStorage.setItem(storageKeys.blockedSlots, JSON.stringify(blockedSlots));
+}
+
 function cacheServices(nextServices) {
   services = Array.isArray(nextServices) ? nextServices : [];
   saveServicesState();
@@ -281,6 +314,12 @@ function cacheServices(nextServices) {
 function cacheReservations(nextReservations) {
   reservations = normalizeReservations(Array.isArray(nextReservations) ? nextReservations : []);
   saveReservationsState();
+}
+
+function cacheAvailability(nextAvailability, nextBlockedSlots = blockedSlots) {
+  availabilitySettings = { ...defaultAvailabilitySettings, ...(nextAvailability || {}) };
+  blockedSlots = Array.isArray(nextBlockedSlots) ? nextBlockedSlots : [];
+  saveAvailabilityState();
 }
 
 function mergeAdminServices(remoteServices) {
@@ -398,6 +437,60 @@ async function runReservationOperation(remoteOperation, localFallback) {
     if (api.isNetworkError?.(error)) {
       setOfflineMode(true, "Modo sin conexion: las reservas se guardan solo en este dispositivo.");
       console.warn("Supabase no respondio. Se usan reservas locales temporalmente.", error);
+      return localFallback();
+    }
+    setOfflineMode(false);
+    throw error;
+  }
+}
+
+async function refreshAvailabilityFromSupabase(renderAfterLoad = true) {
+  const bookingApi = window.paradisoSupabase?.booking;
+  if (!bookingApi) {
+    setOfflineMode(true);
+    return false;
+  }
+
+  try {
+    const [remoteAvailability, remoteBlockedSlots] = await Promise.all([
+      bookingApi.getAvailability(),
+      bookingApi.listBlockedSlots({ activeOnly: false }),
+    ]);
+    cacheAvailability(remoteAvailability, remoteBlockedSlots);
+    setOfflineMode(false);
+    if (renderAfterLoad && isAdminLoggedIn()) {
+      renderAvailabilitySettings();
+      renderBlockedSlots();
+      renderCalendar();
+      renderDayAvailability();
+    }
+    return true;
+  } catch (error) {
+    if (window.paradisoSupabase?.isNetworkError?.(error)) {
+      setOfflineMode(true);
+    } else {
+      setOfflineMode(false);
+      console.warn("No se pudo cargar la disponibilidad desde Supabase.", error);
+    }
+    return false;
+  }
+}
+
+async function runAvailabilityOperation(remoteOperation, localFallback) {
+  const api = window.paradisoSupabase;
+  if (!api?.booking || !api.isAvailable?.()) {
+    setOfflineMode(true);
+    return localFallback();
+  }
+
+  try {
+    const result = await remoteOperation(api.booking);
+    setOfflineMode(false);
+    return result;
+  } catch (error) {
+    if (api.isNetworkError?.(error)) {
+      setOfflineMode(true);
+      console.warn("Supabase no respondio. Se usa disponibilidad local temporalmente.", error);
       return localFallback();
     }
     setOfflineMode(false);
@@ -545,6 +638,28 @@ function overlaps(startA, endA, startB, endB) {
   return startA < endB && endA > startB;
 }
 
+function businessOpenMinutes() {
+  return timeToMinutes(availabilitySettings.openTime || defaultAvailabilitySettings.openTime);
+}
+
+function businessCloseMinutes() {
+  return timeToMinutes(availabilitySettings.closeTime || defaultAvailabilitySettings.closeTime);
+}
+
+function businessSlotStep() {
+  return Number(availabilitySettings.slotStepMinutes || defaultAvailabilitySettings.slotStepMinutes);
+}
+
+function isoWeekday(dateValue) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const nativeDay = new Date(year, month - 1, day).getDay();
+  return nativeDay === 0 ? 7 : nativeDay;
+}
+
+function isActiveBusinessDay(dateValue) {
+  return (availabilitySettings.activeDays || defaultAvailabilitySettings.activeDays).map(Number).includes(isoWeekday(dateValue));
+}
+
 function hasOverlap(dateValue, startMinutes, endMinutes) {
   return activeReservations().some((reservation) => {
     if (reservation.date !== dateValue || !reservation.startTime || !reservation.endTime) return false;
@@ -552,11 +667,22 @@ function hasOverlap(dateValue, startMinutes, endMinutes) {
   });
 }
 
+function slotIsBlocked(dateValue, startMinutes, endMinutes) {
+  return blockedSlots.some((slot) => {
+    if (!slot.active || slot.date !== dateValue) return false;
+    if (!slot.startTime || !slot.endTime) return true;
+    return overlaps(startMinutes, endMinutes, timeToMinutes(slot.startTime), timeToMinutes(slot.endTime));
+  });
+}
+
 function availableSlotsForDuration(dateValue, minutes) {
   const slots = [];
-  for (let start = openMinutes; start + minutes <= closeMinutes; start += slotStepMinutes) {
+  if (!isActiveBusinessDay(dateValue)) return slots;
+  const openMinutes = businessOpenMinutes();
+  const closeMinutes = businessCloseMinutes();
+  for (let start = openMinutes; start + minutes <= closeMinutes; start += businessSlotStep()) {
     const end = start + minutes;
-    if (!hasOverlap(dateValue, start, end)) slots.push(minutesToTime(start));
+    if (!hasOverlap(dateValue, start, end) && !slotIsBlocked(dateValue, start, end)) slots.push(minutesToTime(start));
   }
   return slots;
 }
@@ -589,6 +715,7 @@ function showAdminApp() {
   showAdminView(activeAdminView);
   refreshServicesFromSupabase();
   refreshReservationsFromSupabase();
+  refreshAvailabilityFromSupabase();
 }
 
 function renderAllAdmin() {
@@ -596,6 +723,8 @@ function renderAllAdmin() {
   renderNotificationTemplates();
   renderPaymentConfigForm();
   renderPaymentSummary();
+  renderAvailabilitySettings();
+  renderBlockedSlots();
   renderAdminServices();
   renderReservations();
   renderFinishedWork();
@@ -699,6 +828,201 @@ function savePaymentConfig() {
   saveState();
   renderPaymentSummary();
   $("#paymentConfigStatus").textContent = "Configuracion de cobro guardada.";
+}
+
+function setInlineStatus(selector, message, isError = false) {
+  const target = $(selector);
+  if (!target) return;
+  target.textContent = message;
+  target.classList.toggle("error-status", isError);
+  target.hidden = false;
+}
+
+function renderAvailabilitySettings() {
+  const activeDays = new Set((availabilitySettings.activeDays || []).map(Number));
+  $("#availabilityDayFields").innerHTML = weekDays.map((day) => `
+    <label class="availability-day-toggle">
+      <input type="checkbox" value="${day.value}" ${activeDays.has(day.value) ? "checked" : ""} />
+      <span>${day.label}</span>
+    </label>
+  `).join("");
+  $("#availabilityOpenTime").value = availabilitySettings.openTime || defaultAvailabilitySettings.openTime;
+  $("#availabilityCloseTime").value = availabilitySettings.closeTime || defaultAvailabilitySettings.closeTime;
+  $("#availabilitySlotStep").value = availabilitySettings.slotStepMinutes || defaultAvailabilitySettings.slotStepMinutes;
+}
+
+function blockedSlotLabel(slot) {
+  if (!slot.startTime || !slot.endTime) return "Dia completo";
+  return `${slot.startTime} a ${slot.endTime}`;
+}
+
+function renderBlockedSlots() {
+  $("#blockedSlotDate").min = todayKey();
+  if (!$("#blockedSlotDate").value) $("#blockedSlotDate").value = todayKey();
+  toggleBlockedSlotTimeFields();
+  const sorted = [...blockedSlots].sort((a, b) => {
+    const byDate = String(a.date || "").localeCompare(String(b.date || ""));
+    return byDate || String(a.startTime || "").localeCompare(String(b.startTime || ""));
+  });
+  $("#blockedSlotRows").innerHTML = sorted.length
+    ? sorted.map((slot) => `
+      <article class="admin-row blocked-slot-row" data-blocked-slot-id="${slot.id}">
+        <div class="admin-row-fields">
+          <div>
+            <strong>${escapeHtml(slot.date || "Sin fecha")}</strong>
+            <span>${escapeHtml(blockedSlotLabel(slot))}</span>
+            ${slot.reason ? `<p class="slot-empty">${escapeHtml(slot.reason)}</p>` : ""}
+          </div>
+        </div>
+        <div class="admin-row-actions">
+          <span class="status-pill ${slot.active ? "approved" : "cancelled"}">${slot.active ? "Activo" : "Inactivo"}</span>
+          <button class="button secondary light edit-blocked-slot" type="button">Editar</button>
+          <button class="button secondary light toggle-blocked-slot" type="button">${slot.active ? "Desactivar" : "Activar"}</button>
+        </div>
+      </article>
+    `).join("")
+    : '<p class="slot-empty">No hay bloqueos cargados.</p>';
+}
+
+function blockedSlotFromForm() {
+  const mode = $("#blockedSlotMode").value;
+  return {
+    date: $("#blockedSlotDate").value,
+    fullDay: mode === "full-day",
+    startTime: mode === "full-day" ? "" : $("#blockedSlotStartTime").value,
+    endTime: mode === "full-day" ? "" : $("#blockedSlotEndTime").value,
+    reason: $("#blockedSlotReason").value.trim(),
+    active: $("#blockedSlotActive").value === "true",
+  };
+}
+
+function validateBlockedSlot(slot) {
+  if (!slot.date) return "Elegí una fecha para el bloqueo.";
+  if (slot.date < todayKey()) return "No se puede crear un bloqueo en una fecha pasada.";
+  if (slot.fullDay) return "";
+  if (!slot.startTime || !slot.endTime) return "Completá hora de inicio y fin.";
+  const start = timeToMinutes(slot.startTime);
+  const end = timeToMinutes(slot.endTime);
+  if (end <= start) return "La hora final debe ser mayor a la inicial.";
+  if (start < businessOpenMinutes() || end > businessCloseMinutes()) return "El rango debe estar dentro del horario de atención.";
+  return "";
+}
+
+function affectedReservationsForBlockedSlot(slot) {
+  if (!slot.active) return [];
+  return activeReservations().filter((reservation) => {
+    if (reservation.date !== slot.date || !reservation.startTime || !reservation.endTime) return false;
+    if (slot.fullDay) return true;
+    return overlaps(
+      timeToMinutes(slot.startTime),
+      timeToMinutes(slot.endTime),
+      timeToMinutes(reservation.startTime),
+      timeToMinutes(reservation.endTime),
+    );
+  });
+}
+
+function confirmAffectedReservations(slot) {
+  const affected = affectedReservationsForBlockedSlot(slot);
+  if (!affected.length) return true;
+  const detail = affected.map((reservation) => (
+    `- ${reservation.client?.name || "Cliente"}: ${reservation.startTime} a ${reservation.endTime} (${bookingLabels[reservation.bookingStatus]})`
+  )).join("\n");
+  return window.confirm(`Este bloqueo coincide con reservas activas. No se van a modificar, pero quedaran dentro del bloqueo:\n\n${detail}\n\n¿Querés guardar el bloqueo igualmente?`);
+}
+
+function fillBlockedSlotForm(slot) {
+  editingBlockedSlotId = slot?.id || "";
+  $("#blockedSlotDate").value = slot?.date || todayKey();
+  const fullDay = !slot?.startTime || !slot?.endTime;
+  $("#blockedSlotMode").value = fullDay ? "full-day" : "range";
+  $("#blockedSlotStartTime").value = fullDay ? "" : slot.startTime;
+  $("#blockedSlotEndTime").value = fullDay ? "" : slot.endTime;
+  $("#blockedSlotReason").value = slot?.reason || "";
+  $("#blockedSlotActive").value = String(slot?.active !== false);
+  $("#cancelBlockedSlotEdit").hidden = !editingBlockedSlotId;
+  toggleBlockedSlotTimeFields();
+}
+
+function resetBlockedSlotForm() {
+  editingBlockedSlotId = "";
+  $("#blockedSlotForm").reset();
+  $("#blockedSlotDate").value = todayKey();
+  $("#blockedSlotActive").value = "true";
+  $("#cancelBlockedSlotEdit").hidden = true;
+  toggleBlockedSlotTimeFields();
+}
+
+function toggleBlockedSlotTimeFields() {
+  const fullDay = $("#blockedSlotMode").value === "full-day";
+  $("#blockedSlotTimeFields").hidden = fullDay;
+  $("#blockedSlotStartTime").required = !fullDay;
+  $("#blockedSlotEndTime").required = !fullDay;
+}
+
+async function saveAvailabilitySettings() {
+  const activeDays = $$("#availabilityDayFields input:checked").map((input) => Number(input.value));
+  const nextSettings = {
+    ...availabilitySettings,
+    openTime: $("#availabilityOpenTime").value,
+    closeTime: $("#availabilityCloseTime").value,
+    slotStepMinutes: Number($("#availabilitySlotStep").value),
+    activeDays,
+  };
+  if (!activeDays.length) throw new Error("Dejá al menos un día activo.");
+  if (timeToMinutes(nextSettings.closeTime) <= timeToMinutes(nextSettings.openTime)) throw new Error("La hora de cierre debe ser mayor a la apertura.");
+  if (nextSettings.slotStepMinutes < 5) throw new Error("El intervalo mínimo es de 5 minutos.");
+
+  const savedSettings = await runAvailabilityOperation(
+    (bookingApi) => bookingApi.updateAvailability(nextSettings),
+    () => nextSettings,
+  );
+  availabilitySettings = savedSettings;
+  saveAvailabilityState();
+  renderAvailabilitySettings();
+  renderCalendar();
+  renderDayAvailability();
+  setInlineStatus("#availabilityStatus", "Disponibilidad guardada correctamente.");
+}
+
+async function saveBlockedSlotFromForm() {
+  const nextSlot = blockedSlotFromForm();
+  const validationError = validateBlockedSlot(nextSlot);
+  if (validationError) throw new Error(validationError);
+  if (!confirmAffectedReservations(nextSlot)) return;
+
+  const savedSlot = await runAvailabilityOperation(
+    (bookingApi) => editingBlockedSlotId
+      ? bookingApi.updateBlockedSlot(editingBlockedSlotId, nextSlot)
+      : bookingApi.createBlockedSlot(nextSlot),
+    () => ({ ...nextSlot, id: editingBlockedSlotId || `local-block-${Date.now()}` }),
+  );
+  blockedSlots = editingBlockedSlotId
+    ? blockedSlots.map((slot) => (slot.id === editingBlockedSlotId ? savedSlot : slot))
+    : [savedSlot, ...blockedSlots];
+  saveAvailabilityState();
+  resetBlockedSlotForm();
+  renderBlockedSlots();
+  renderCalendar();
+  renderDayAvailability();
+  setInlineStatus("#blockedSlotStatus", "Bloqueo guardado correctamente.");
+}
+
+async function toggleBlockedSlot(slotId) {
+  const slot = blockedSlots.find((item) => item.id === slotId);
+  if (!slot) return;
+  const nextSlot = { ...slot, active: !slot.active, fullDay: !slot.startTime || !slot.endTime };
+  if (!confirmAffectedReservations(nextSlot)) return;
+  const savedSlot = await runAvailabilityOperation(
+    (bookingApi) => bookingApi.updateBlockedSlot(slot.id, nextSlot),
+    () => nextSlot,
+  );
+  blockedSlots = blockedSlots.map((item) => (item.id === slot.id ? savedSlot : item));
+  saveAvailabilityState();
+  renderBlockedSlots();
+  renderCalendar();
+  renderDayAvailability();
+  setInlineStatus("#blockedSlotStatus", savedSlot.active ? "Bloqueo activado." : "Bloqueo desactivado.");
 }
 
 function renderAdminServices() {
@@ -1247,6 +1571,7 @@ function renderCalendar() {
 function renderDayAvailability() {
   $("#adminSelectedDateLabel").textContent = dateLabel(selectedCalendarDate);
   const dayReservations = activeReservations().filter((reservation) => reservation.date === selectedCalendarDate).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+  const dayBlocks = blockedSlots.filter((slot) => slot.active && slot.date === selectedCalendarDate);
 
   $("#adminDayReservations").innerHTML = dayReservations.length
     ? dayReservations.map((reservation) => `
@@ -1257,8 +1582,12 @@ function renderDayAvailability() {
     `).join("")
     : '<p class="slot-empty">Sin reservas para esta fecha.</p>';
 
-  $("#adminBusySlots").innerHTML = dayReservations.length
-    ? dayReservations.map((reservation) => `<span>${reservation.startTime} a ${reservation.endTime} (${bookingLabels[reservation.bookingStatus]})</span>`).join("")
+  const busyItems = [
+    ...dayReservations.map((reservation) => `<span>${reservation.startTime} a ${reservation.endTime} (${bookingLabels[reservation.bookingStatus]})</span>`),
+    ...dayBlocks.map((slot) => `<span>Bloqueo: ${escapeHtml(blockedSlotLabel(slot))}${slot.reason ? ` - ${escapeHtml(slot.reason)}` : ""}</span>`),
+  ];
+  $("#adminBusySlots").innerHTML = busyItems.length
+    ? busyItems.join("")
     : '<span>Sin horarios ocupados</span>';
 
   const freeSlots = availableSlotsForDuration(selectedCalendarDate, 30);
@@ -1415,6 +1744,32 @@ function bindEvents() {
     savePaymentConfig();
   });
 
+  $("#availabilitySettingsForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveAvailabilitySettings().catch((error) => setInlineStatus("#availabilityStatus", error.message, true));
+  });
+
+  $("#blockedSlotMode").addEventListener("change", toggleBlockedSlotTimeFields);
+
+  $("#blockedSlotForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveBlockedSlotFromForm().catch((error) => setInlineStatus("#blockedSlotStatus", error.message, true));
+  });
+
+  $("#cancelBlockedSlotEdit").addEventListener("click", () => {
+    resetBlockedSlotForm();
+    setInlineStatus("#blockedSlotStatus", "Edicion cancelada.");
+  });
+
+  $("#blockedSlotRows").addEventListener("click", (event) => {
+    const row = event.target.closest(".blocked-slot-row");
+    if (!row) return;
+    const slot = blockedSlots.find((item) => item.id === row.dataset.blockedSlotId);
+    if (!slot) return;
+    if (event.target.closest(".edit-blocked-slot")) fillBlockedSlotForm(slot);
+    if (event.target.closest(".toggle-blocked-slot")) toggleBlockedSlot(slot.id).catch((error) => setInlineStatus("#blockedSlotStatus", error.message, true));
+  });
+
   $("#notificationTemplateForm").addEventListener("submit", (event) => {
     event.preventDefault();
     saveNotificationTemplates();
@@ -1510,7 +1865,7 @@ function bindEvents() {
 }
 
 window.addEventListener("storage", (event) => {
-  if (![storageKeys.services, storageKeys.reservations, storageKeys.smtp, storageKeys.paymentConfig, storageKeys.notificationTemplates].includes(event.key)) return;
+  if (![storageKeys.services, storageKeys.reservations, storageKeys.smtp, storageKeys.paymentConfig, storageKeys.availabilitySettings, storageKeys.blockedSlots, storageKeys.notificationTemplates].includes(event.key)) return;
   refreshStateFromStorage();
   if (isAdminLoggedIn()) renderAllAdmin();
 });
